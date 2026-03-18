@@ -129,8 +129,19 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
 .cbadge{position:absolute;top:5px;right:5px;background:var(--amber);border-radius:3px;width:16px;height:16px;display:flex;align-items:center;justify-content:center;font-size:.6rem;color:var(--deep);font-weight:700;opacity:0;transition:opacity .12s;pointer-events:none}
 .ci.coll .cbadge{opacity:1}
 /* deck-mode add button overlay */
-.ci .add-btn{position:absolute;bottom:0;left:0;right:0;background:rgba(200,150,62,.92);color:var(--deep);font-family:'Cinzel',serif;font-size:.62rem;letter-spacing:.06em;padding:.35rem;text-align:center;opacity:0;transition:opacity .13s;cursor:pointer;pointer-events:none}
+.ci .add-btn{position:absolute;bottom:0;left:0;right:0;display:flex;opacity:0;transition:opacity .13s;pointer-events:none}
 .ci:hover .add-btn{opacity:1;pointer-events:auto}
+.ci .add-btn .deck-btn-add{flex:1;background:rgba(200,150,62,.92);color:var(--deep);font-family:'Cinzel',serif;font-size:.62rem;letter-spacing:.06em;padding:.35rem;text-align:center;cursor:pointer}
+.ci .add-btn .deck-btn-add:hover{background:rgba(200,150,62,1)}
+.ci .add-btn .deck-btn-remove{flex:1;background:rgba(248,113,113,.88);color:#fff;font-family:'Cinzel',serif;font-size:.62rem;letter-spacing:.06em;padding:.35rem;text-align:center;cursor:pointer;border-left:1px solid rgba(0,0,0,.15)}
+.ci .add-btn .deck-btn-remove:hover{background:rgba(248,113,113,1)}
+.ci .add-btn .deck-btn-sb{flex:1;background:rgba(99,102,241,.88);color:#fff;font-family:'Cinzel',serif;font-size:.62rem;letter-spacing:.06em;padding:.35rem;text-align:center;cursor:pointer;border-left:1px solid rgba(0,0,0,.15)}
+.ci .add-btn .deck-btn-sb:hover{background:rgba(99,102,241,1)}
+/* sideboard section in deck panel */
+.sb-section{border-top:2px dashed rgba(99,102,241,.35);margin-top:.5rem}
+.sb-header{display:flex;align-items:center;justify-content:space-between;padding:.55rem 1rem .35rem;font-family:'Cinzel',serif;font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:rgba(99,102,241,.9)}
+.sb-header .sb-count{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--dim);letter-spacing:0;text-transform:none}
+.sb-list{padding:0 1rem .5rem}
 .ci.in-deck{border-color:rgba(200,150,62,.5)}
 .ci.in-deck .cbadge{background:var(--amber);opacity:1}
 /* in-browse deck indicator (non-deck-mode) */
@@ -274,9 +285,9 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
 .ov{position:fixed;inset:0;background:rgba(10,7,20,.88);z-index:200;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(8px)}
 .ov.h{display:none}
 .mod{background:var(--s1);border:1px solid var(--bdrb);border-radius:var(--rl);max-width:680px;width:100%;max-height:90vh;overflow-y:auto;display:flex;position:relative}
-.mi{width:238px;flex-shrink:0;background:var(--s2);border-radius:var(--rl) 0 0 var(--rl);overflow:hidden}
-.mi img{width:100%;height:100%;object-fit:cover;display:block}
-.miph{width:100%;min-height:340px;height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:.5rem;color:var(--dim);font-size:.78rem;text-align:center;padding:1rem}
+.mi{width:238px;flex-shrink:0;background:var(--s2);border-radius:var(--rl) 0 0 var(--rl);display:flex;align-items:center;justify-content:center}
+.mi img{width:100%;height:auto;display:block;border-radius:var(--rl) 0 0 var(--rl)}
+.miph{width:100%;aspect-ratio:5/7;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:.5rem;color:var(--dim);font-size:.78rem;text-align:center;padding:1rem}
 .mb{flex:1;padding:1.4rem 1.4rem 1.4rem 1.2rem;display:flex;flex-direction:column;gap:.85rem;min-width:0}
 .mcl{position:absolute;top:.6rem;right:.6rem;background:var(--s3);border:1px solid var(--bdr);border-radius:50%;width:27px;height:27px;display:flex;align-items:center;justify-content:center;color:var(--mut);cursor:pointer;font-size:.82rem;z-index:10;transition:all .12s}
 .mcl:hover{border-color:var(--amber);color:var(--amber)}
@@ -362,8 +373,8 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
 }
 @media(max-width:700px){
   .mod{flex-direction:column}
-  .mi{width:100%;height:220px;border-radius:var(--rl) var(--rl) 0 0}
-  .mi img{object-position:top}
+  .mi{width:100%;border-radius:var(--rl) var(--rl) 0 0}
+  .mi img{border-radius:var(--rl) var(--rl) 0 0}
   .logo em,.pill{display:none}
   .deck-panel{width:220px}
 }
@@ -574,6 +585,10 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
                   <option value="rar">Rarity</option>
                 </select>
                 <div class="vt">
+                  <button class="vb" id="dFiltDeck"    onclick="toggleDeckFilter('deck')"      title="Show only cards in deck">In Deck</button>
+                  <button class="vb" id="dFiltSB"      onclick="toggleDeckFilter('sideboard')" title="Show only sideboard cards">In Sideboard</button>
+                </div>
+                <div class="vt">
                   <button class="vb on" id="dgbtn" onclick="dsv('g')" title="Grid">⊞</button>
                   <button class="vb" id="dlbtn" onclick="dsv('l')" title="List">☰</button>
                 </div>
@@ -628,6 +643,7 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
             </div>
 
             <div class="deck-list" id="deckList"></div>
+            <div id="deckSideboard"></div>
           </div>
 
           <div class="deck-footer">
@@ -703,6 +719,7 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
 // ═══════════════════════════════════════════════════════════════════
 let db = null;
 let page = 1, dpage = 1;
+let dDeckFilter = null; // null | 'deck' | 'sideboard'
 const PG = 48;
 let view = 'g', dview = 'g';
 let collOnly = false;
@@ -711,8 +728,12 @@ let curTab = 'browse';
 
 // Decks: { id, name, cards: {cardId: qty} }
 let decks = JSON.parse(localStorage.getItem('lv_decks')||'[]');
-// Migrate any legacy plain-number card entries to {qty, foil} objects
-(function(){decks.forEach(d=>{Object.entries(d.cards).forEach(([id,v])=>{if(typeof v==='number')d.cards[id]={qty:v,foil:false}})})})();
+// Migrate any legacy plain-number card entries to {qty, foil} objects; ensure sideboard exists
+(function(){decks.forEach(d=>{
+  if(!d.sideboard)d.sideboard={};
+  Object.entries(d.cards).forEach(([id,v])=>{if(typeof v==='number')d.cards[id]={qty:v,foil:false}});
+  Object.entries(d.sideboard).forEach(([id,v])=>{if(typeof v==='number')d.sideboard[id]={qty:v,foil:false}});
+})})();
 let curDeckId = null;  // null = "home", else deck id
 
 // Browse filters
@@ -1133,6 +1154,13 @@ function runQ(f,cnt,pg,co){
 // ═══════════════════════════════════════════════════════════════════
 // DECK PICKER RENDER
 // ═══════════════════════════════════════════════════════════════════
+function toggleDeckFilter(which){
+  dDeckFilter=dDeckFilter===which?null:which;
+  document.getElementById('dFiltDeck').classList.toggle('on',dDeckFilter==='deck');
+  document.getElementById('dFiltSB').classList.toggle('on',dDeckFilter==='sideboard');
+  dpage=1;drun();
+}
+
 function drun(){
   if(!db)return;
   const tot=drunQ(DF,true,dpage);
@@ -1146,6 +1174,19 @@ function drun(){
 function drunQ(f,cnt,pg){
   const [from,fromP]=buildFrom(f.rarity);
   const c=[],p=[];
+
+  // When a deck/sideboard filter is active, restrict to those card IDs only
+  if(dDeckFilter){
+    const deck=getCurDeck();
+    const ids=deck?Object.keys(dDeckFilter==='sideboard'?(deck.sideboard||{}):deck.cards):[];
+    if(!ids.length){
+      // No cards in that pool — return nothing
+      if(cnt)return 0;
+      return[];
+    }
+    c.push(`id IN(${ids.map(()=>'?').join(',')})`);p.push(...ids);
+  }
+
   if(f.q){c.push(`(name LIKE ? OR version LIKE ? OR ctxt LIKE ? OR flavor LIKE ? OR classes LIKE ?)`);const s=`%${f.q}%`;p.push(s,s,s,s,s)}
   if(f.ink.size){c.push(`ink IN(${[...f.ink].map(()=>'?').join(',')})`);p.push(...f.ink)}
   const typeClauses=[];
@@ -1250,11 +1291,14 @@ function renderCards(cards,gridId,gBtnId,lBtnId,v,deckMode,deck){
   // In browse mode, show which cards are in the active deck
   const activeDeck=getCurDeck();
   const deckCardIds=deck?new Set(Object.keys(deck.cards)):activeDeck?new Set(Object.keys(activeDeck.cards)):new Set();
+  const sbCardIds=deck?new Set(Object.keys(deck.sideboard||{})):activeDeck?new Set(Object.keys(activeDeck.sideboard||{})):new Set();
   for(const c of cards){
     const el=document.createElement('div');
     const isColl=coll.has(c.id);
     const inDeck=deckCardIds.has(c.id);
+    const inSB=sbCardIds.has(c.id);
     const qty=deck&&deck.cards[c.id]?(deck.cards[c.id]?.qty??deck.cards[c.id]):activeDeck&&activeDeck.cards[c.id]?(activeDeck.cards[c.id]?.qty??activeDeck.cards[c.id]):0;
+    const sbQty=deck&&deck.sideboard?.[c.id]?(deck.sideboard[c.id]?.qty??deck.sideboard[c.id]):activeDeck&&activeDeck.sideboard?.[c.id]?(activeDeck.sideboard[c.id]?.qty??activeDeck.sideboard[c.id]):0;
     el.className='ci'+(isColl&&!deckMode?' coll':'')+(inDeck&&deckMode?' in-deck':'')+(inDeck&&!deckMode?' browsing-in-deck':'');
     const rar=c.rarity||'Common';
     const img=v==='l'?c.img_s:c.img_n;
@@ -1274,7 +1318,11 @@ function renderCards(cards,gridId,gBtnId,lBtnId,v,deckMode,deck){
           ${price}
         </div>
       </div>
-      ${deckMode?`<div class="add-btn" onclick="event.stopPropagation();addToDeck('${c.id}')">＋ Add${qty>0?` (${qty})`:''}</div><div class="cbadge">${qty||''}</div>`:`<div class="cbadge">✓</div>`}
+      ${deckMode?`<div class="add-btn">
+        <div class="deck-btn-add" onclick="event.stopPropagation();addToDeck('${c.id}')">＋ Add${qty>0?` (${qty})`:''}</div>
+        ${qty>0?`<div class="deck-btn-remove" onclick="event.stopPropagation();removeFromDeck('${c.id}')">－ Remove</div>`:''}
+        <div class="deck-btn-sb" onclick="event.stopPropagation();addToSideboard('${c.id}')" title="Add to sideboard">SB${sbQty>0?` (${sbQty})`:''}</div>
+      </div><div class="cbadge">${qty||''}</div>`:`<div class="cbadge">✓</div>`}
       ${inDeck&&!deckMode?`<div class="deck-in-badge">${qty>1?qty+'×':'In deck'}</div>`:''}`;
     }else{
       el.innerHTML=`<div class="iw" style="border-radius:4px">${imgH}${ph}</div>
@@ -1349,10 +1397,34 @@ function openCard(id,deckMode){
   const isColl=coll.has(c.id);
   const inkSt=c.ink?`background:${IC[c.ink]};color:#000`:'';
   const hasSt=[c.cost,c.str,c.wil,c.lore].some(v=>v!=null);
-  const deckHtml=deckMode&&curDeckId?`<div class="deck-add-row">
-    <span style="font-family:'Cinzel',serif;font-size:.7rem;color:var(--mut);flex-shrink:0">Add to deck</span>
-    <button class="btn on" style="font-size:.63rem;padding:.3rem .6rem" onclick="addToDeck('${c.id}');cmod()">＋ Add Card</button>
-  </div>`:'';
+  const deckHtml=(()=>{
+    if(!deckMode||!curDeckId)return'';
+    const deck=getCurDeck();if(!deck)return'';
+    const e=cardEntry(deck,c.id);
+    const qty=e?e.qty:0;
+    const se=sbEntry(deck,c.id);
+    const sqty=se?se.qty:0;
+    return`<div class="deck-add-row" style="flex-direction:column;align-items:stretch;gap:.5rem">
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <span style="font-family:'Cinzel',serif;font-size:.65rem;color:var(--mut);flex-shrink:0;width:64px">Deck</span>
+        <div style="display:flex;align-items:center;gap:.4rem;flex:1">
+          <div class="qty-btn" onclick="removeFromDeck('${c.id}');openCard('${c.id}',true)">−</div>
+          <span class="qty-num" style="min-width:22px;text-align:center">${qty}</span>
+          <div class="qty-btn" onclick="addToDeck('${c.id}');openCard('${c.id}',true)">+</div>
+        </div>
+        ${qty>0?`<button class="btn danger" style="font-size:.58rem;padding:.25rem .5rem" onclick="setDeckQty('${c.id}',0);openCard('${c.id}',true)">Remove all</button>`:''}
+      </div>
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <span style="font-family:'Cinzel',serif;font-size:.65rem;color:rgba(99,102,241,.9);flex-shrink:0;width:64px">Sideboard</span>
+        <div style="display:flex;align-items:center;gap:.4rem;flex:1">
+          <div class="qty-btn" onclick="removeFromSideboard('${c.id}');openCard('${c.id}',true)">−</div>
+          <span class="qty-num" style="min-width:22px;text-align:center">${sqty}</span>
+          <div class="qty-btn" onclick="addToSideboard('${c.id}');openCard('${c.id}',true)">+</div>
+        </div>
+        ${sqty>0?`<button class="btn danger" style="font-size:.58rem;padding:.25rem .5rem" onclick="setSideboardQty('${c.id}',0);openCard('${c.id}',true)">Remove all</button>`:''}
+      </div>
+    </div>`;
+  })();
 
   // Build printings HTML
   const printsHtml=prints.length>1?`
@@ -1479,13 +1551,16 @@ function toggleBkClass(btn){
 
 function createNewDeck(){
   const id='d_'+Date.now();
-  const deck={id,name:'New Deck',cards:{}};
+  const deck={id,name:'New Deck',cards:{},sideboard:{}};
   decks.push(deck);saveDecks();
   openDeckBuilder(id);
 }
 
 function openDeckBuilder(id){
   curDeckId=id;
+  dDeckFilter=null;
+  document.getElementById('dFiltDeck').classList.remove('on');
+  document.getElementById('dFiltSB').classList.remove('on');
   document.getElementById('decksHome').style.display='none';
   document.getElementById('deckBuilder').style.display='flex';
   const deck=getCurDeck();
@@ -1496,6 +1571,9 @@ function openDeckBuilder(id){
 
 function backToDecks(){
   curDeckId=null;
+  dDeckFilter=null;
+  document.getElementById('dFiltDeck').classList.remove('on');
+  document.getElementById('dFiltSB').classList.remove('on');
   document.getElementById('deckBuilder').style.display='none';
   document.getElementById('decksHome').style.display='block';
   renderDecksHome();
@@ -1586,14 +1664,51 @@ function setDeckFoil(cardId){
   const deck=getCurDeck();if(!deck)return;
   const e=cardEntry(deck,cardId);if(!e)return;
   deck.cards[cardId]={qty:e.qty,foil:!e.foil};
-  saveDecks();renderDeckPanel();
+  saveDecks();renderDeckPanel();drun();
+}
+
+// ── SIDEBOARD MANAGEMENT ──
+function sbEntry(deck,id){
+  if(!deck.sideboard)deck.sideboard={};
+  const v=deck.sideboard[id];
+  if(v===undefined)return null;
+  if(typeof v==='number')return{qty:v,foil:false};
+  return v;
+}
+function addToSideboard(cardId){
+  const deck=getCurDeck();if(!deck)return;
+  if(!deck.sideboard)deck.sideboard={};
+  const e=sbEntry(deck,cardId);
+  deck.sideboard[cardId]=e?{qty:e.qty+1,foil:e.foil}:{qty:1,foil:false};
+  saveDecks();renderDeckPanel();drun();
+}
+function removeFromSideboard(cardId){
+  const deck=getCurDeck();if(!deck)return;
+  const e=sbEntry(deck,cardId);if(!e)return;
+  if(e.qty>1)deck.sideboard[cardId]={qty:e.qty-1,foil:e.foil};
+  else delete deck.sideboard[cardId];
+  saveDecks();renderDeckPanel();drun();
+}
+function setSideboardQty(cardId,qty){
+  const deck=getCurDeck();if(!deck)return;
+  qty=parseInt(qty)||0;
+  if(qty<=0)delete deck.sideboard[cardId];
+  else{const e=sbEntry(deck,cardId);deck.sideboard[cardId]={qty,foil:e?e.foil:false};}
+  saveDecks();renderDeckPanel();drun();
+}
+function setSideboardFoil(cardId){
+  const deck=getCurDeck();if(!deck)return;
+  const e=sbEntry(deck,cardId);if(!e)return;
+  deck.sideboard[cardId]={qty:e.qty,foil:!e.foil};
+  saveDecks();renderDeckPanel();drun();
 }
 
 // ── DECK PANEL RENDER ──
 function renderDeckPanel(){
   const deck=getCurDeck();if(!deck)return;
+  // Always read fresh from deck.cards — never cache entries before mutations
   const entries=Object.entries(deck.cards).map(([id,v])=>[id,typeof v==='number'?{qty:v,foil:false}:v]);
-  const totalCards=entries.reduce((s,[,e])=>s+e.qty,0);
+  const totalCards=entries.reduce((s,[,e])=>s+(+e.qty||0),0);
   const uniq=entries.length;
 
   // get card data for all entries
@@ -1604,7 +1719,7 @@ function renderDeckPanel(){
     if(res[0]){const{columns,values}=res[0];values.forEach(r=>{const o={};columns.forEach((c,i)=>o[c]=r[i]);cardData[o.id]=o})}
   }
 
-  // avg cost
+  // avg cost (only cards that have a cost)
   let totalCost=0,costCount=0;
   entries.forEach(([id,e])=>{const c=cardData[id];if(c&&c.cost!=null){totalCost+=c.cost*e.qty;costCount+=e.qty}});
   const avgCost=costCount>0?(totalCost/costCount).toFixed(1):'—';
@@ -1614,9 +1729,11 @@ function renderDeckPanel(){
   entries.forEach(([id,e])=>{const c=cardData[id];if(c?.ink){inkCounts[c.ink]=(inkCounts[c.ink]||0)+e.qty}});
   const inkKeys=Object.keys(inkCounts);
 
-  // update stats
-  document.getElementById('dsTot').textContent=totalCards;
-  document.getElementById('dsUniq').textContent=uniq;
+  // update stats — read totalCards/uniq fresh from deck.cards to guarantee accuracy
+  const displayTotal=Object.values(deck.cards).reduce((s,v)=>s+(+(v?.qty??v)||0),0);
+  const displayUniq=Object.keys(deck.cards).length;
+  document.getElementById('dsTot').textContent=displayTotal;
+  document.getElementById('dsUniq').textContent=displayUniq;
   document.getElementById('dsAvg').textContent=avgCost;
   document.getElementById('dsInks').textContent=inkKeys.length||'—';
 
@@ -1717,46 +1834,102 @@ function renderDeckPanel(){
   });
 
   const listEl=document.getElementById('deckList');
-  if(!sorted.length){listEl.innerHTML=`<div class="deck-empty"><div style="font-size:1.5rem">✦</div><div>No cards yet.<br>Click cards on the left to add them.</div></div>`;return}
-
-  listEl.innerHTML=sorted.map(([id,e])=>{
-    const c=cardData[id];if(!c)return'';
-    const rar=c.rarity||'Common';
-    return`<div class="dk-entry">
-      ${c.img_s?`<img class="dk-thumb" src="${h(c.img_s)}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dk-thumb-ph">✦</div>`}
-      <div class="dk-name">
-        <div class="cn" style="font-size:.65rem">${h(c.name)}</div>
-        <div class="cv" style="font-size:.57rem">${c.version?h(c.version):'&nbsp;'}</div>
-        <div style="display:flex;align-items:center;gap:3px;margin-top:2px">
-          ${c.ink?inkIcon(c.ink,9):''}
-          <span class="rb ${RC[rar]||'rC'}" style="font-size:.5rem;padding:0 3px">${RA[rar]||'?'}</span>
-          ${c.cost!=null?`<span style="font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim)">${c.cost}◆</span>`:''}
+  if(!sorted.length){listEl.innerHTML=`<div class="deck-empty"><div style="font-size:1.5rem">✦</div><div>No cards yet.<br>Click cards on the left to add them.</div></div>`;}
+  else{
+    listEl.innerHTML=sorted.map(([id,e])=>{
+      const c=cardData[id];if(!c)return'';
+      const rar=c.rarity||'Common';
+      return`<div class="dk-entry">
+        ${c.img_s?`<img class="dk-thumb" src="${h(c.img_s)}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dk-thumb-ph">✦</div>`}
+        <div class="dk-name">
+          <div class="cn" style="font-size:.65rem">${h(c.name)}</div>
+          <div class="cv" style="font-size:.57rem">${c.version?h(c.version):'&nbsp;'}</div>
+          <div style="display:flex;align-items:center;gap:3px;margin-top:2px">
+            ${c.ink?inkIcon(c.ink,9):''}
+            <span class="rb ${RC[rar]||'rC'}" style="font-size:.5rem;padding:0 3px">${RA[rar]||'?'}</span>
+            ${c.cost!=null?`<span style="font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim)">${c.cost}◆</span>`:''}
+          </div>
         </div>
-      </div>
-      <button class="foil-btn${e.foil?' on':''}" onclick="setDeckFoil('${id}')" title="${e.foil?'Foil — click to remove':'Non-foil — click to mark as foil'}">${e.foil?'✦ Foil':'Foil'}</button>
-      <div class="dk-qty">
-        <div class="qty-btn" onclick="removeFromDeck('${id}')">−</div>
-        <span class="qty-num">${e.qty}</span>
-        <div class="qty-btn" onclick="addToDeck('${id}')">+</div>
-      </div>
-      <button class="dk-remove" onclick="setDeckQty('${id}',0)" title="Remove">✕</button>
-    </div>`;
-  }).join('');
+        <button class="foil-btn${e.foil?' on':''}" onclick="setDeckFoil('${id}')" title="${e.foil?'Foil — click to remove':'Non-foil — click to mark as foil'}">${e.foil?'✦ Foil':'Foil'}</button>
+        <div class="dk-qty">
+          <div class="qty-btn" onclick="removeFromDeck('${id}')">−</div>
+          <span class="qty-num">${e.qty}</span>
+          <div class="qty-btn" onclick="addToDeck('${id}')">+</div>
+        </div>
+        <button class="dk-remove" onclick="setDeckQty('${id}',0)" title="Remove">✕</button>
+      </div>`;
+    }).join('');
+  }
+
+  // ── SIDEBOARD ──
+  const sbEntries=Object.entries(deck.sideboard||{}).map(([id,v])=>[id,typeof v==='number'?{qty:v,foil:false}:v]);
+  const sbEl=document.getElementById('deckSideboard');
+
+  if(!sbEntries.length){sbEl.innerHTML='';return;}
+
+  // Fetch card data for sideboard entries
+  const sbData={};
+  const sbIds=sbEntries.map(([id])=>`'${id}'`).join(',');
+  const sbRes=db.exec(`SELECT id,name,version,ink,cost,rarity,img_s FROM cards WHERE id IN(${sbIds})`);
+  if(sbRes[0]){const{columns,values}=sbRes[0];values.forEach(r=>{const o={};columns.forEach((c,i)=>o[c]=r[i]);sbData[o.id]=o})}
+
+  const sbSorted=sbEntries.sort(([ia],[ib])=>{
+    const ca=sbData[ia],cb=sbData[ib];
+    if((ca?.cost??99)<(cb?.cost??99))return -1;
+    if((ca?.cost??99)>(cb?.cost??99))return 1;
+    return(ca?.name||'').localeCompare(cb?.name||'');
+  });
+  const sbTotal=sbEntries.reduce((s,[,e])=>s+e.qty,0);
+
+  sbEl.innerHTML=`<div class="sb-section">
+    <div class="sb-header">
+      <span>Sideboard</span>
+      <span class="sb-count">${sbTotal} card${sbTotal!==1?'s':''}</span>
+    </div>
+    <div class="sb-list">${sbSorted.map(([id,e])=>{
+      const c=sbData[id];if(!c)return'';
+      const rar=c.rarity||'Common';
+      return`<div class="dk-entry">
+        ${c.img_s?`<img class="dk-thumb" src="${h(c.img_s)}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dk-thumb-ph">✦</div>`}
+        <div class="dk-name">
+          <div class="cn" style="font-size:.65rem">${h(c.name)}</div>
+          <div class="cv" style="font-size:.57rem">${c.version?h(c.version):'&nbsp;'}</div>
+          <div style="display:flex;align-items:center;gap:3px;margin-top:2px">
+            ${c.ink?inkIcon(c.ink,9):''}
+            <span class="rb ${RC[rar]||'rC'}" style="font-size:.5rem;padding:0 3px">${RA[rar]||'?'}</span>
+            ${c.cost!=null?`<span style="font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim)">${c.cost}◆</span>`:''}
+          </div>
+        </div>
+        <button class="foil-btn${e.foil?' on':''}" onclick="setSideboardFoil('${id}')" title="${e.foil?'Foil':'Non-foil'}">${e.foil?'✦ Foil':'Foil'}</button>
+        <div class="dk-qty">
+          <div class="qty-btn" onclick="removeFromSideboard('${id}')">−</div>
+          <span class="qty-num">${e.qty}</span>
+          <div class="qty-btn" onclick="addToSideboard('${id}')">+</div>
+        </div>
+        <button class="dk-remove" onclick="setSideboardQty('${id}',0)" title="Remove">✕</button>
+      </div>`;
+    }).join('')}</div>
+  </div>`;
 }
 
 // ── DECK EXPORT ──
 function getDeckText(deck){
   if(!deck)return'';
-  const entries=Object.entries(deck.cards);if(!entries.length)return'';
+  const entries=Object.entries(deck.cards);
+  const sbEntries=Object.entries(deck.sideboard||{});
+  const allIds=[...new Set([...entries.map(([id])=>id),...sbEntries.map(([id])=>id)])];
+  if(!allIds.length)return'';
   const cardData={};
-  const ids=entries.map(([id])=>`'${id}'`).join(',');
-  const res=db.exec(`SELECT id,name,version FROM cards WHERE id IN(${ids})`);
+  const res=db.exec(`SELECT id,name,version FROM cards WHERE id IN(${allIds.map(()=>'?').join(',')})`,allIds);
   if(res[0]){const{columns,values}=res[0];values.forEach(r=>{const o={};columns.forEach((c,i)=>o[c]=r[i]);cardData[o.id]=o})}
-  return entries.map(([id,v])=>{
+  const fmt=([id,v])=>{
     const c=cardData[id];if(!c)return'';
     const e=typeof v==='number'?{qty:v,foil:false}:v;
     return`${e.qty}x ${c.name}${c.version?' - '+c.version:''}${e.foil?' (foil)':''}`;
-  }).filter(Boolean).join('\n');
+  };
+  const mainLines=entries.map(fmt).filter(Boolean).join('\n');
+  const sbLines=sbEntries.map(fmt).filter(Boolean).join('\n');
+  return mainLines+(sbLines?'\n\nSideboard:\n'+sbLines:'');
 }
 
 function exportDeckTxt(){
@@ -1772,24 +1945,34 @@ function openDeckImport(){document.getElementById('dimod').classList.remove('h')
 function closeDImod(){document.getElementById('dimod').classList.add('h')}
 function doDeckImport(){
   const deck=getCurDeck();if(!deck)return;
+  if(!deck.sideboard)deck.sideboard={};
   const txt=document.getElementById('ditxt').value.trim();if(!txt)return;
-  const lines=txt.split('\n').map(l=>l.trim()).filter(Boolean);let matched=0,tot=0,nf=[];
+  const lines=txt.split('\n').map(l=>l.trim()).filter(Boolean);
+  let matched=0,tot=0,nf=[];
+  let isSB=false;
   for(const line of lines){
+    if(/^sideboard:?$/i.test(line)){isSB=true;continue;}
     const m=line.match(/^(?:(\d+)\s*[xX×]\s*)?(.+)$/);if(!m)continue;tot++;
-    const qty=parseInt(m[1]||'1'),raw=m[2].trim();
+    const qty=parseInt(m[1]||'1'),raw=m[2].replace(/\(foil\)/i,'').trim();
     const di=raw.indexOf(' - ');const name=di>-1?raw.substring(0,di).trim():raw;const ver=di>-1?raw.substring(di+3).trim():null;
     let res;if(ver)res=db.exec(`SELECT id FROM cards WHERE LOWER(name)=LOWER(?) AND LOWER(version)=LOWER(?) LIMIT 1`,[name,ver]);
     else res=db.exec(`SELECT id FROM cards WHERE LOWER(name)=LOWER(?) LIMIT 1`,[name]);
     if(res[0]?.values[0]){
       const id=res[0].values[0][0];
-      const cur=deck.cards[id];
-      const curQty=cur?(typeof cur==='number'?cur:cur.qty):0;
-      deck.cards[id]={qty:curQty+qty,foil:cur?.foil||false};
+      if(isSB){
+        const cur=deck.sideboard[id];
+        const curQty=cur?(typeof cur==='number'?cur:cur.qty):0;
+        deck.sideboard[id]={qty:curQty+qty,foil:cur?.foil||false};
+      }else{
+        const cur=deck.cards[id];
+        const curQty=cur?(typeof cur==='number'?cur:cur.qty):0;
+        deck.cards[id]={qty:curQty+qty,foil:cur?.foil||false};
+      }
       matched++;
     }else nf.push(raw);
   }
   saveDecks();renderDeckPanel();drun();
-  const el=document.getElementById('dires');if(!nf.length){el.textContent=`✓ Added ${matched}/${tot} cards to deck.`;el.className='ires ok'}else{el.innerHTML=`Added ${matched}/${tot}. Not found: ${nf.slice(0,4).map(n=>`<em>${h(n)}</em>`).join(', ')}${nf.length>4?` +${nf.length-4} more`:''}`;el.className=matched?'ires':'ires err'}
+  const el=document.getElementById('dires');if(!nf.length){el.textContent=`✓ Added ${matched}/${tot} cards.`;el.className='ires ok'}else{el.innerHTML=`Added ${matched}/${tot}. Not found: ${nf.slice(0,4).map(n=>`<em>${h(n)}</em>`).join(', ')}${nf.length>4?` +${nf.length-4} more`:''}`;el.className=matched?'ires':'ires err'}
 }
 
 // ═══════════════════════════════════════════════════════════════════
