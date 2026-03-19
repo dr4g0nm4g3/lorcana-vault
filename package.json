@@ -1,0 +1,14 @@
+{
+  "name": "lorcana-vault",
+  "version": "1.0.0",
+  "description": "Disney Lorcana card browser and deck builder",
+  "scripts": {
+    "build":       "node build.js",
+    "build:watch": "node build.js --watch",
+    "test":        "node --test lorcana.test.js",
+    "test:watch":  "node --test --watch lorcana.test.js"
+  },
+  "devDependencies": {
+    "sql.js": "*"
+  }
+}
