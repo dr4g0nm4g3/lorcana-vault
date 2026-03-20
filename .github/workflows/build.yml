@@ -1,0 +1,84 @@
+name: Build Lorcana Vault
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # allow manual trigger from the Actions tab
+
+jobs:
+  test-and-build:
+    name: Test & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies (sql.js for DB integration tests)
+        run: npm install
+
+      - name: Run tests
+        run: node --test lorcana.test.js
+
+      - name: Build
+        run: node build.js
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lorcana-browser
+          path: dist/lorcana-browser.html
+          retention-days: 30
+
+  release:
+    name: Create Release
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    # Only release on pushes to the default branch, not on PRs
+    if: github.event_name == 'push'
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: node build.js
+
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Create or update rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          body: |
+            Automatically built from commit ${{ steps.sha.outputs.short }} on `${{ github.ref_name }}`.
+
+            **To use:** download `lorcana-browser.html`, then serve it locally:
+            ```bash
+            python -m http.server 8080
+            # open http://localhost:8080/lorcana-browser.html
+            ```
+          files: dist/lorcana-browser.html
+          prerelease: false
+          make_latest: true

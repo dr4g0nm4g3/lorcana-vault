@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lorcana Vault</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --amber:#c8963e;--al:#f0c96a;--ad:#8a6020;
+  --deep:#0e0b18;--s1:#17122a;--s2:#1f1838;--s3:#2a2245;--s4:#332c55;
+  --bdr:rgba(200,150,62,.18);--bdrb:rgba(200,150,62,.45);
+  --txt:#f0e8d0;--mut:#9488b8;--dim:#5a5080;
+  --r:8px;--rl:14px;
+  --ia:#f59e0b;--ip:#a855f7;--ie:#10b981;--ir:#ef4444;--is:#3b82f6;--ist:#94a3b8;
+  --green:#34d399;--red:#f87171;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Crimson Pro',serif;background:var(--deep);color:var(--txt);min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse at 20% 10%,rgba(90,60,160,.18) 0%,transparent 55%),radial-gradient(ellipse at 80% 80%,rgba(60,100,180,.12) 0%,transparent 55%);pointer-events:none;z-index:0}
+#app{position:relative;z-index:1;display:flex;flex-direction:column;min-height:100vh}
+
+/* ── LOADING ── */
+#load{position:fixed;inset:0;background:var(--deep);z-index:300;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.25rem;text-align:center;padding:2rem}
+.ll{font-family:'Cinzel',serif;font-size:1.8rem;font-weight:700;color:var(--al);letter-spacing:.12em}
+.ls{font-size:.82rem;color:var(--dim);font-style:italic}
+.bw{width:280px;height:3px;background:var(--s3);border-radius:99px;overflow:hidden}
+.br{height:100%;background:linear-gradient(90deg,var(--ad),var(--al));border-radius:99px;transition:width .4s ease;width:0}
+.lm{font-family:'DM Mono',monospace;font-size:.7rem;color:var(--dim);max-width:380px;line-height:1.6}
+.le{color:var(--red);font-family:'DM Mono',monospace;font-size:.72rem;padding:.75rem 1rem;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:var(--r);max-width:420px;line-height:1.6;margin-top:.5rem;display:none}
+.lr{display:none;margin-top:.5rem;font-family:'Cinzel',serif;font-size:.7rem;letter-spacing:.08em;padding:.45rem 1.2rem;border-radius:var(--r);border:1px solid var(--amber);background:transparent;color:var(--al);cursor:pointer}
+.lr:hover{background:var(--amber);color:var(--deep)}
+
+/* ── HEADER ── */
+header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-items:center;gap:1rem;height:60px;background:rgba(14,11,24,.92);backdrop-filter:blur(12px);position:sticky;top:0;z-index:100}
+.logo{font-family:'Cinzel',serif;font-size:1.05rem;font-weight:700;letter-spacing:.08em;color:var(--al);white-space:nowrap;flex-shrink:0}
+.logo em{color:var(--dim);font-style:normal;font-size:.72rem;margin-left:.4rem}
+
+/* nav tabs in header */
+.nav-tabs{display:flex;gap:0;border:1px solid var(--bdr);border-radius:var(--r);overflow:hidden;flex-shrink:0}
+.nav-tab{font-family:'Cinzel',serif;font-size:.68rem;letter-spacing:.07em;padding:.38rem 1rem;background:transparent;border:none;color:var(--mut);cursor:pointer;transition:all .15s;white-space:nowrap}
+.nav-tab:hover{color:var(--txt);background:var(--s3)}
+.nav-tab.on{background:var(--s3);color:var(--al);box-shadow:inset 0 -2px 0 var(--amber)}
+
+.sw{position:relative;flex:1;min-width:0;max-width:380px}
+.sw input{width:100%;background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);padding:.42rem .9rem .42rem 2.1rem;color:var(--txt);font-family:'DM Mono',monospace;font-size:.8rem;outline:none;transition:border-color .2s}
+.sw input:focus{border-color:var(--bdrb)}
+.sw input::placeholder{color:var(--dim)}
+.si{position:absolute;left:.62rem;top:50%;transform:translateY(-50%);color:var(--dim);font-size:.85rem;pointer-events:none}
+.hr{display:flex;gap:.5rem;align-items:center;margin-left:auto;flex-shrink:0}
+.pill{font-family:'DM Mono',monospace;font-size:.68rem;color:var(--dim);padding:.26rem .6rem;border:1px solid var(--bdr);border-radius:99px;white-space:nowrap}
+.btn{font-family:'Cinzel',serif;font-size:.68rem;letter-spacing:.07em;padding:.38rem .8rem;border-radius:var(--r);border:1px solid var(--bdr);background:transparent;color:var(--mut);cursor:pointer;transition:all .18s;white-space:nowrap}
+.btn:hover{border-color:var(--amber);color:var(--al)}
+.btn.on{background:var(--ad);border-color:var(--amber);color:var(--al)}
+.btn.on:hover{background:var(--amber);color:var(--deep)}
+.btn.danger{border-color:rgba(248,113,113,.4);color:var(--red)}
+.btn.danger:hover{background:rgba(248,113,113,.1);border-color:var(--red)}
+
+/* ── SHARED LAYOUT ── */
+.main{display:flex;flex:1}
+.side{width:220px;flex-shrink:0;border-right:1px solid var(--bdr);padding:1rem;display:flex;flex-direction:column;gap:1.15rem;background:rgba(14,11,24,.5);overflow-y:auto;max-height:calc(100vh - 60px);position:sticky;top:60px}
+.fs h3{font-family:'Cinzel',serif;font-size:.59rem;letter-spacing:.15em;color:var(--dim);text-transform:uppercase;margin-bottom:.55rem;padding-bottom:.32rem;border-bottom:1px solid var(--bdr)}
+.chips{display:flex;flex-wrap:wrap;gap:.3rem}
+.chip{padding:.22rem .5rem;border-radius:99px;border:1px solid var(--bdr);font-size:.65rem;font-family:'DM Mono',monospace;color:var(--mut);cursor:pointer;transition:all .13s;background:transparent;display:flex;align-items:center;gap:3px}
+.chip:hover{border-color:var(--bdrb);color:var(--txt)}
+.chip.on{color:var(--deep)!important;border-color:transparent!important}
+.chip[data-ink=Amber].on{background:var(--ia)}
+.chip[data-ink=Amethyst].on{background:var(--ip)}
+.chip[data-ink=Emerald].on{background:var(--ie)}
+.chip[data-ink=Ruby].on{background:var(--ir)}
+.chip[data-ink=Sapphire].on{background:var(--is)}
+.chip[data-ink=Steel].on{background:var(--ist);color:#111!important}
+.chip[data-rarity].on{background:var(--amber)}
+.chip[data-type].on{background:var(--s3);color:var(--txt)!important;border:1px solid var(--bdrb)!important}
+.chip[data-set].on{background:var(--s3);color:var(--al)!important;border:1px solid var(--ad)!important}
+.chip[data-iw].on{background:var(--amber)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.ia{background:var(--ia)}.ip{background:var(--ip)}.ie{background:var(--ie)}.ir{background:var(--ir)}.is{background:var(--is)}.ist{background:var(--ist)}
+.cr-w{display:flex;flex-direction:column;gap:.4rem}
+.cr-l{font-size:.67rem;color:var(--mut);display:flex;justify-content:space-between;font-family:'DM Mono',monospace;align-items:center}
+.cr-w input[type=range]{width:100%;accent-color:var(--amber)}
+.cr-clr{background:none;border:none;color:var(--dim);cursor:pointer;font-size:.75rem;padding:0 0 0 4px;line-height:1;transition:color .12s;flex-shrink:0}
+.cr-clr:hover{color:var(--red)}
+.clrb{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--dim);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline;text-align:left}
+.clrb:hover{color:var(--amber)}
+/* classification chips — collapsible */
+.chips-wrap{position:relative}
+.chips-overflow{display:flex;flex-wrap:wrap;gap:.3rem;overflow:hidden;transition:max-height .25s ease}
+.chips-overflow.collapsed{max-height:68px}
+.chips-overflow.expanded{max-height:9999px}
+.show-more-btn{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--amber);background:none;border:none;cursor:pointer;padding:.2rem 0 0;display:block;letter-spacing:.04em}
+.show-more-btn:hover{color:var(--al)}
+.chip[data-class].on{background:var(--s4);color:var(--al)!important;border:1px solid var(--bdrb)!important}
+/* group label inside classification section */
+.chip-group-lbl{font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;width:100%;margin-top:.35rem;margin-bottom:-.05rem;padding-top:.3rem;border-top:1px solid var(--bdr)}
+
+/* ── BROWSE TAB ── */
+#tabBrowse{display:flex;flex:1}
+#tabDecks{display:none;flex:1}
+.content{flex:1;padding:1.2rem;overflow-y:auto;max-height:calc(100vh - 60px);min-width:0}
+.toolbar{display:flex;align-items:center;gap:.6rem;margin-bottom:1rem;flex-wrap:wrap}
+.ss{background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);color:var(--mut);font-family:'DM Mono',monospace;font-size:.72rem;padding:.36rem .6rem;cursor:pointer;outline:none}
+.ss option{background:var(--s2)}
+.vt{display:flex;border:1px solid var(--bdr);border-radius:var(--r);overflow:hidden}
+.vb{background:transparent;border:none;color:var(--dim);padding:.36rem .58rem;cursor:pointer;font-size:.82rem;transition:all .12s}
+.vb.on{background:var(--s3);color:var(--amber)}
+.vb:hover:not(.on){color:var(--txt)}
+.rc{font-family:'DM Mono',monospace;font-size:.68rem;color:var(--dim);margin-left:auto}
+
+/* ── CARD GRID ── */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:.82rem}
+.grid.lv{grid-template-columns:1fr;gap:.36rem}
+.ci{border:1px solid var(--bdr);border-radius:var(--rl);overflow:hidden;background:var(--s1);cursor:pointer;transition:transform .13s,border-color .13s,box-shadow .13s;position:relative}
+.ci:hover{transform:translateY(-3px);border-color:var(--bdrb);box-shadow:0 8px 24px rgba(200,150,62,.1)}
+.iw{width:100%;aspect-ratio:5/7;overflow:hidden;background:var(--s2);position:relative}
+.iw img{width:100%;height:100%;object-fit:cover;transition:transform .2s;display:block}
+.ci:hover .iw img{transform:scale(1.04)}
+.iph{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.32rem;color:var(--dim);font-size:.6rem;font-family:'DM Mono',monospace;text-align:center;padding:.5rem}
+.cinfo{padding:.48rem .6rem .6rem}
+.cn{font-family:'Cinzel',serif;font-size:.66rem;font-weight:600;color:var(--txt);line-height:1.3;margin-bottom:1px}
+.cv{font-size:.59rem;color:var(--mut);font-style:italic;margin-bottom:.3rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cm{display:flex;align-items:center;gap:.3rem;flex-wrap:wrap}
+.ib{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.rb{font-family:'DM Mono',monospace;font-size:.53rem;padding:1px 4px;border-radius:3px;border:1px solid}
+.cb{font-family:'Cinzel',serif;font-size:.58rem;background:var(--s3);border:1px solid var(--bdr);border-radius:99px;padding:1px 5px;color:var(--al);margin-left:auto}
+.rC{color:#9ca3af;border-color:#4b5563}.rU{color:#60a5fa;border-color:#2563eb}.rR{color:#fbbf24;border-color:#d97706}
+.rS{color:#c084fc;border-color:#9333ea}.rL{color:#f97316;border-color:#ea580c}.rE{color:#34d399;border-color:#059669}.rP{color:#f9a8d4;border-color:#ec4899}
+.rEp{color:#e879f9;border-color:#c026d3}.rIc{color:#fde68a;border-color:#f59e0b;text-shadow:0 0 6px rgba(245,158,11,.6)}
+.cbadge{position:absolute;top:5px;right:5px;background:var(--amber);border-radius:3px;width:16px;height:16px;display:flex;align-items:center;justify-content:center;font-size:.6rem;color:var(--deep);font-weight:700;opacity:0;transition:opacity .12s;pointer-events:none}
+.ci.coll .cbadge{opacity:1}
+/* deck-mode add button overlay */
+.ci .add-btn{position:absolute;bottom:0;left:0;right:0;display:flex;opacity:0;transition:opacity .13s;pointer-events:none}
+.ci:hover .add-btn{opacity:1;pointer-events:auto}
+.ci .add-btn .deck-btn-add{flex:1;background:rgba(200,150,62,.92);color:var(--deep);font-family:'Cinzel',serif;font-size:.62rem;letter-spacing:.06em;padding:.35rem;text-align:center;cursor:pointer}
+.ci .add-btn .deck-btn-add:hover{background:rgba(200,150,62,1)}
+.ci .add-btn .deck-btn-remove{flex:1;background:rgba(248,113,113,.88);color:#fff;font-family:'Cinzel',serif;font-size:.62rem;letter-spacing:.06em;padding:.35rem;text-align:center;cursor:pointer;border-left:1px solid rgba(0,0,0,.15)}
+.ci .add-btn .deck-btn-remove:hover{background:rgba(248,113,113,1)}
+.ci .add-btn .deck-btn-sb{flex:1;background:rgba(99,102,241,.88);color:#fff;font-family:'Cinzel',serif;font-size:.62rem;letter-spacing:.06em;padding:.35rem;text-align:center;cursor:pointer;border-left:1px solid rgba(0,0,0,.15)}
+.ci .add-btn .deck-btn-sb:hover{background:rgba(99,102,241,1)}
+/* sideboard section in deck panel */
+.sb-section{border-top:2px dashed rgba(99,102,241,.35);margin-top:.5rem}
+.sb-header{display:flex;align-items:center;justify-content:space-between;padding:.55rem 1rem .35rem;font-family:'Cinzel',serif;font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:rgba(99,102,241,.9)}
+.sb-header .sb-count{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--dim);letter-spacing:0;text-transform:none}
+.sb-list{padding:0 1rem .5rem}
+.ci.in-deck{border-color:rgba(200,150,62,.5)}
+.ci.in-deck .cbadge{background:var(--amber);opacity:1}
+/* in-browse deck indicator (non-deck-mode) */
+.ci.browsing-in-deck{border-color:rgba(59,130,246,.4)}
+.deck-in-badge{position:absolute;top:5px;left:5px;background:rgba(59,130,246,.85);border-radius:3px;padding:1px 5px;font-family:'DM Mono',monospace;font-size:.52rem;color:#fff;pointer-events:none;opacity:0;transition:opacity .12s}
+.ci.browsing-in-deck .deck-in-badge{opacity:1}
+/* price badge */
+.price-badge{font-family:'DM Mono',monospace;font-size:.56rem;color:var(--green);margin-left:auto;letter-spacing:.02em}
+
+/* ── CARD HOVER PREVIEW ── */
+#cardPreview{position:fixed;z-index:500;pointer-events:none;opacity:0;transition:opacity .15s;display:flex;gap:.75rem;background:var(--s1);border:1px solid var(--bdrb);border-radius:var(--rl);padding:.75rem;box-shadow:0 16px 48px rgba(0,0,0,.6);max-width:340px;width:340px}
+#cardPreview.show{opacity:1}
+#cardPreview .pv-img{width:110px;flex-shrink:0;border-radius:6px;overflow:hidden;background:var(--s2)}
+#cardPreview .pv-img img{width:100%;display:block}
+#cardPreview .pv-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:.4rem}
+#cardPreview .pv-name{font-family:'Cinzel',serif;font-size:.82rem;font-weight:700;color:var(--al);line-height:1.25}
+#cardPreview .pv-ver{font-size:.72rem;color:var(--mut);font-style:italic}
+#cardPreview .pv-chips{display:flex;gap:.3rem;flex-wrap:wrap}
+#cardPreview .pv-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:.3rem;margin-top:.1rem}
+#cardPreview .pv-stat{background:var(--s2);border-radius:5px;padding:.3rem .4rem;text-align:center}
+#cardPreview .pv-stat-l{font-family:'DM Mono',monospace;font-size:.5rem;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+#cardPreview .pv-stat-v{font-family:'Cinzel',serif;font-size:.82rem;color:var(--al)}
+#cardPreview .pv-text{font-size:.68rem;line-height:1.55;color:var(--txt);background:var(--s2);border-radius:5px;padding:.4rem .5rem;border-left:2px solid var(--ad);white-space:pre-wrap;max-height:80px;overflow:hidden;-webkit-mask-image:linear-gradient(to bottom,black 60%,transparent);mask-image:linear-gradient(to bottom,black 60%,transparent)}
+#cardPreview .pv-price{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--green);margin-top:auto}
+
+/* ── INK SVG ICONS ── */
+.ink-icon{display:inline-block;vertical-align:middle;flex-shrink:0}
+.ink-icon svg{display:block}
+
+/* keyword chips in sidebar */
+.chip[data-kw].on{background:var(--s4);color:var(--al)!important;border:1px solid var(--bdrb)!important}
+
+/* list view */
+.grid.lv .ci{display:flex;align-items:center;padding:.5rem .82rem;gap:.78rem;border-radius:var(--r)}
+.grid.lv .iw{width:40px;flex-shrink:0;border-radius:4px}
+.grid.lv .cinfo{padding:0;flex:1;min-width:0}
+.grid.lv .cn{font-size:.74rem}
+.lstats{display:flex;gap:.9rem;align-items:center;flex-shrink:0}
+.ls{font-family:'DM Mono',monospace;font-size:.63rem;color:var(--dim);display:flex;gap:3px;align-items:center}
+.ls b{color:var(--mut);font-weight:400}
+
+/* ── DECK TAB LAYOUT ── */
+.deck-layout{display:flex;flex:1;min-height:0;overflow:hidden}
+
+/* LEFT: card picker */
+.deck-picker{flex:1;min-width:200px;display:flex;flex-direction:column;border-right:none}
+.deck-picker-toolbar{display:flex;align-items:center;gap:.6rem;padding:.85rem 1.2rem .6rem;flex-wrap:wrap;border-bottom:1px solid var(--bdr);flex-shrink:0}
+.deck-picker-grid{flex:1;overflow-y:auto;padding:1rem 1.2rem;max-height:calc(100vh - 60px - 53px)}
+
+/* drag handle between picker and panel */
+.deck-resizer{width:5px;flex-shrink:0;cursor:col-resize;background:var(--bdr);transition:background .15s;position:relative;z-index:10}
+.deck-resizer:hover,.deck-resizer.dragging{background:var(--amber)}
+.deck-resizer::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);height:32px;width:1px;background:var(--bdrb);border-radius:1px}
+
+/* RIGHT: deck panel */
+.deck-panel{flex-basis:320px;flex-shrink:0;flex-grow:0;min-width:220px;max-width:520px;display:flex;flex-direction:column;height:calc(100vh - 60px);min-height:0;overflow:hidden}
+/* scrollable zone: breakdown stats + card list scroll together */
+.deck-scroll{flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column}
+
+/* deck list header */
+.deck-panel-hdr{padding:.85rem 1rem .7rem;border-bottom:1px solid var(--bdr);flex-shrink:0}
+.deck-selector{display:flex;gap:.5rem;align-items:center;margin-bottom:.65rem}
+.deck-select{flex:1;background:var(--s2);border:1px solid var(--bdr);border-radius:var(--r);color:var(--txt);font-family:'Cinzel',serif;font-size:.72rem;padding:.36rem .6rem;outline:none;cursor:pointer}
+.deck-select option{background:var(--s2)}
+.deck-name-input{flex:1;background:var(--s2);border:1px solid var(--bdr);border-radius:var(--r);color:var(--txt);font-family:'Cinzel',serif;font-size:.8rem;padding:.36rem .7rem;outline:none;display:none}
+.deck-name-input:focus{border-color:var(--bdrb)}
+.deck-name-input::placeholder{color:var(--dim)}
+.deck-actions{display:flex;gap:.4rem;flex-wrap:wrap}
+
+/* deck stats bar */
+.deck-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem;padding:.6rem 1rem;border-bottom:1px solid var(--bdr);flex-shrink:0}
+.dstat{background:var(--s2);border-radius:var(--r);padding:.45rem .5rem;text-align:center}
+.dstat-l{font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
+.dstat-v{font-family:'Cinzel',serif;font-size:.95rem;color:var(--al)}
+
+/* ink curve chart */
+.curve-section{padding:.65rem 1rem .55rem;border-bottom:1px solid var(--bdr);flex-shrink:0}
+.curve-label{font-family:'Cinzel',serif;font-size:.59rem;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;margin-bottom:.5rem}
+.curve-bars{display:flex;align-items:flex-end;gap:3px;height:52px}
+.curve-bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}
+.curve-bar{width:100%;background:var(--s3);border-radius:3px 3px 0 0;transition:height .3s ease;min-height:0;position:relative}
+.curve-bar-val{font-family:'DM Mono',monospace;font-size:.52rem;color:var(--dim);min-height:.7rem}
+.curve-bar-lbl{font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim)}
+
+/* ink composition dots */
+.ink-comp{display:flex;gap:4px;flex-wrap:wrap;padding:0 1rem .6rem}
+.ink-seg{display:flex;align-items:center;gap:3px;font-family:'DM Mono',monospace;font-size:.6rem;color:var(--mut)}
+.ink-seg .dot{width:8px;height:8px}
+
+/* deck card list */
+.deck-list{padding:.5rem 1rem}
+
+/* type/classification breakdown */
+.deck-breakdown{display:flex;flex-direction:column;gap:.0rem}
+.bk-section{display:flex;flex-direction:column;gap:.3rem}
+.bk-label{font-family:'Cinzel',serif;font-size:.59rem;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;margin-bottom:.15rem}
+.bk-row{display:flex;align-items:center;gap:.5rem}
+.bk-name{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--mut);width:72px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bk-bar-track{flex:1;height:6px;background:var(--s3);border-radius:3px;overflow:hidden}
+.bk-bar-fill{height:100%;border-radius:3px;transition:width .3s ease}
+.bk-count{font-family:'DM Mono',monospace;font-size:.58rem;color:var(--dim);width:18px;text-align:right;flex-shrink:0}
+.dk-entry{display:flex;align-items:center;gap:.6rem;padding:.42rem .5rem;border-radius:var(--r);border:1px solid transparent;transition:border-color .12s,background .12s;margin-bottom:3px}
+.dk-entry:hover{background:var(--s2);border-color:var(--bdr)}
+.dk-thumb{width:32px;height:32px;border-radius:3px;object-fit:cover;flex-shrink:0;background:var(--s3)}
+.dk-thumb-ph{width:32px;height:32px;border-radius:3px;flex-shrink:0;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:.7rem}
+.dk-name{flex:1;min-width:0}
+.dk-name .cn{font-size:.65rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dk-name .cv{font-size:.57rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dk-qty{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.qty-btn{background:var(--s3);border:1px solid var(--bdr);border-radius:4px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--mut);font-size:.75rem;transition:all .12s;flex-shrink:0}
+.qty-btn:hover{border-color:var(--amber);color:var(--al)}
+.qty-num{font-family:'DM Mono',monospace;font-size:.72rem;color:var(--txt);min-width:14px;text-align:center}
+.dk-remove{background:none;border:none;color:var(--dim);cursor:pointer;font-size:.75rem;padding:2px 4px;border-radius:3px;transition:all .12s;flex-shrink:0}
+.dk-remove:hover{color:var(--red);background:rgba(248,113,113,.1)}
+/* foil toggle */
+.foil-btn{font-family:'DM Mono',monospace;font-size:.55rem;padding:1px 5px;border-radius:99px;border:1px solid var(--bdr);background:transparent;color:var(--dim);cursor:pointer;transition:all .15s;flex-shrink:0;letter-spacing:.03em}
+.foil-btn:hover{border-color:var(--bdrb);color:var(--mut)}
+.foil-btn.on{background:linear-gradient(105deg,#7c3aed,#db2777,#ea580c);border-color:transparent;color:#fff;text-shadow:0 0 6px rgba(255,255,255,.5)}
+
+/* deck empty state */
+.deck-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2.5rem 1rem;gap:.75rem;color:var(--dim);font-size:.8rem;font-style:italic;text-align:center}
+
+/* deck footer - export */
+.deck-footer{padding:.7rem 1rem;border-top:1px solid var(--bdr);flex-shrink:0;display:flex;gap:.4rem;flex-wrap:wrap}
+
+/* stats collapsible toggle */
+.stats-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;padding:.48rem 1rem;border-bottom:1px solid var(--bdr);background:none;border-left:none;border-right:none;border-top:none;cursor:pointer;flex-shrink:0;transition:background .13s}
+.stats-toggle:hover{background:var(--s2)}
+.stats-toggle-lbl{font-family:'Cinzel',serif;font-size:.6rem;letter-spacing:.1em;color:var(--dim);text-transform:uppercase}
+.stats-toggle-arr{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--dim);transition:transform .2s;display:inline-block}
+.stats-toggle-arr.open{transform:rotate(180deg)}
+.stats-body{display:none;flex-direction:column}
+.stats-body.open{display:flex;border-bottom:1px solid var(--bdr)}
+
+/* type chips — pill style matching ink-seg */
+.type-chips{display:flex;gap:4px;flex-wrap:wrap;padding:.1rem 1rem .6rem}
+.type-seg{display:flex;align-items:center;gap:4px;font-family:'DM Mono',monospace;font-size:.6rem;color:var(--mut);background:var(--s2);border:1px solid var(--bdr);border-radius:99px;padding:2px 7px}
+.type-seg b{color:var(--txt);font-weight:400}
+
+/* ── MODAL shared ── */
+.ov{position:fixed;inset:0;background:rgba(10,7,20,.88);z-index:200;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(8px)}
+.ov.h{display:none}
+.mod{background:var(--s1);border:1px solid var(--bdrb);border-radius:var(--rl);max-width:680px;width:100%;max-height:90vh;overflow-y:auto;display:flex;position:relative}
+.mi{width:238px;flex-shrink:0;background:var(--s2);border-radius:var(--rl) 0 0 var(--rl);display:flex;align-items:center;justify-content:center}
+.mi img{width:100%;height:auto;display:block;border-radius:var(--rl) 0 0 var(--rl)}
+.miph{width:100%;aspect-ratio:5/7;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:.5rem;color:var(--dim);font-size:.78rem;text-align:center;padding:1rem}
+.mb{flex:1;padding:1.4rem 1.4rem 1.4rem 1.2rem;display:flex;flex-direction:column;gap:.85rem;min-width:0}
+.mcl{position:absolute;top:.6rem;right:.6rem;background:var(--s3);border:1px solid var(--bdr);border-radius:50%;width:27px;height:27px;display:flex;align-items:center;justify-content:center;color:var(--mut);cursor:pointer;font-size:.82rem;z-index:10;transition:all .12s}
+.mcl:hover{border-color:var(--amber);color:var(--amber)}
+.mt{font-family:'Cinzel',serif;font-size:1.2rem;font-weight:700;color:var(--al);line-height:1.2}
+.mv{font-size:.83rem;color:var(--mut);font-style:italic;margin-top:1px}
+.mch{display:flex;gap:.38rem;flex-wrap:wrap}
+.mc{font-family:'DM Mono',monospace;font-size:.65rem;padding:2px 8px;border-radius:99px;border:1px solid var(--bdr);color:var(--mut)}
+.mc.ink{border:none;color:#000;font-weight:500}
+.mst{display:grid;grid-template-columns:repeat(4,1fr);gap:.42rem}
+.ms{background:var(--s2);border-radius:var(--r);padding:.52rem;text-align:center}
+.msl{font-family:'DM Mono',monospace;font-size:.57rem;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px}
+.msv{font-family:'Cinzel',serif;font-size:1rem;color:var(--al)}
+.mtxt{background:var(--s2);border-radius:var(--r);padding:.8rem;font-size:.84rem;line-height:1.7;color:var(--txt);border-left:2px solid var(--ad);white-space:pre-wrap}
+.mfl{font-size:.77rem;font-style:italic;color:var(--mut);line-height:1.6}
+.msi{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--dim);display:flex;gap:.9rem}
+.msi b{color:var(--mut);font-weight:400}
+/* printings section in detail modal */
+.mprints{display:flex;flex-direction:column;gap:.35rem}
+.mprints-lbl{font-family:'Cinzel',serif;font-size:.59rem;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;margin-bottom:.1rem}
+.mprint-row{display:flex;align-items:center;gap:.6rem;padding:.38rem .5rem;border-radius:var(--r);background:var(--s2);border:1px solid var(--bdr);transition:border-color .12s;cursor:pointer}
+.mprint-row:hover{border-color:var(--bdrb)}
+.mprint-row.active-print{border-color:var(--amber);background:rgba(200,150,62,.07)}
+.mprint-thumb{width:28px;height:28px;border-radius:3px;object-fit:cover;flex-shrink:0;background:var(--s3)}
+.mprint-thumb-ph{width:28px;height:28px;border-radius:3px;flex-shrink:0;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:.55rem}
+.mprint-info{flex:1;min-width:0}
+.mprint-set{font-family:'DM Mono',monospace;font-size:.64rem;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mprint-meta{font-family:'DM Mono',monospace;font-size:.58rem;color:var(--dim);margin-top:1px}
+.mprint-rar{font-family:'DM Mono',monospace;font-size:.58rem;padding:1px 5px;border-radius:3px;border:1px solid;flex-shrink:0}
+.mprint-coll{font-family:'DM Mono',monospace;font-size:.58rem;color:var(--dim);flex-shrink:0}
+.mprint-collbadge{width:14px;height:14px;background:var(--amber);border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:.5rem;color:var(--deep);flex-shrink:0;opacity:0}
+.mprint-collbadge.on{opacity:1}
+.ctog{display:flex;align-items:center;gap:.6rem;padding:.62rem .85rem;background:var(--s2);border-radius:var(--r);border:1px solid var(--bdr);cursor:pointer;transition:border-color .14s;margin-top:auto}
+.ctog:hover{border-color:var(--amber)}
+.ctog.on{border-color:var(--amber);background:rgba(200,150,62,.08)}
+.cl2{font-family:'Cinzel',serif;font-size:.7rem;color:var(--mut);flex:1}
+.ctog.on .cl2{color:var(--al)}
+.ck{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--bdrb);display:flex;align-items:center;justify-content:center;color:transparent;font-size:.62rem;transition:all .12s;flex-shrink:0}
+.ctog.on .ck{background:var(--amber);border-color:var(--amber);color:var(--deep)}
+/* deck add in detail modal */
+.deck-add-row{display:flex;align-items:center;gap:.5rem;padding:.62rem .85rem;background:var(--s2);border-radius:var(--r);border:1px solid var(--bdr)}
+.deck-add-row select{flex:1;background:var(--s3);border:1px solid var(--bdr);border-radius:var(--r);color:var(--txt);font-family:'DM Mono',monospace;font-size:.72rem;padding:.3rem .5rem;outline:none}
+.deck-add-row select option{background:var(--s2)}
+
+/* ── IMPORT modal ── */
+.imp{max-width:510px;width:100%;background:var(--s1);border:1px solid var(--bdrb);border-radius:var(--rl);padding:1.5rem;position:relative}
+.it2{font-family:'Cinzel',serif;font-size:1rem;color:var(--al);margin-bottom:.38rem}
+.isub{font-size:.8rem;color:var(--mut);margin-bottom:1rem;line-height:1.65}
+.isub code{color:var(--al);font-size:.72rem;font-family:'DM Mono',monospace}
+.ita{width:100%;height:180px;background:var(--s2);border:1px solid var(--bdr);border-radius:var(--r);color:var(--txt);font-family:'DM Mono',monospace;font-size:.76rem;padding:.65rem;resize:vertical;outline:none;line-height:1.6;transition:border-color .14s}
+.ita:focus{border-color:var(--bdrb)}
+.ita::placeholder{color:var(--dim)}
+.iact{display:flex;gap:.6rem;margin-top:.85rem}
+.ires{margin-top:.6rem;font-family:'DM Mono',monospace;font-size:.7rem;color:var(--mut);padding:.5rem .65rem;background:var(--s2);border-radius:var(--r);min-height:2rem;line-height:1.5}
+.ires.ok{color:var(--green)}.ires.err{color:var(--red)}
+
+/* ── PAGINATION ── */
+.pag{display:flex;align-items:center;justify-content:center;gap:.38rem;margin-top:1.5rem;padding-bottom:2rem;flex-wrap:wrap}
+.pb{background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);color:var(--mut);font-family:'DM Mono',monospace;font-size:.7rem;padding:.35rem .68rem;cursor:pointer;transition:all .12s}
+.pb:hover:not(:disabled){border-color:var(--amber);color:var(--amber)}
+.pb.on{background:var(--ad);border-color:var(--amber);color:var(--al)}
+.pb:disabled{opacity:.3;cursor:not-allowed}
+.pi{font-family:'DM Mono',monospace;font-size:.68rem;color:var(--dim);padding:0 .28rem}
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3.5rem 2rem;gap:1rem;color:var(--dim);font-size:.84rem;font-style:italic;text-align:center;grid-column:1/-1}
+
+/* ── DECK LIST PAGE (all decks) ── */
+.decks-page{flex:1;padding:1.5rem;overflow-y:auto;max-height:calc(100vh - 60px)}
+.decks-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem;margin-top:1.2rem}
+.deck-card{background:var(--s1);border:1px solid var(--bdr);border-radius:var(--rl);padding:1.1rem;cursor:pointer;transition:all .14s;position:relative}
+.deck-card:hover{border-color:var(--bdrb);transform:translateY(-2px);box-shadow:0 6px 20px rgba(200,150,62,.08)}
+.deck-card-title{font-family:'Cinzel',serif;font-size:.88rem;font-weight:600;color:var(--al);margin-bottom:.3rem}
+.deck-card-meta{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--dim);margin-bottom:.75rem}
+.deck-card-inks{display:flex;gap:4px;margin-bottom:.6rem}
+.deck-card-actions{display:flex;gap:.4rem;margin-top:.8rem;padding-top:.7rem;border-top:1px solid var(--bdr)}
+
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--s3);border-radius:99px}
+::-webkit-scrollbar-thumb:hover{background:var(--dim)}
+
+@media(max-width:900px){
+  .side{display:none}
+  .deck-panel{width:260px}
+}
+@media(max-width:700px){
+  .mod{flex-direction:column}
+  .mi{width:100%;border-radius:var(--rl) var(--rl) 0 0}
+  .mi img{border-radius:var(--rl) var(--rl) 0 0}
+  .logo em,.pill{display:none}
+  .deck-panel{width:220px}
+}
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="load">
+  <div class="ll">✦ LORCANA VAULT ✦</div>
+  <div class="ls">Illumineer's Archive</div>
+  <div class="bw"><div class="br" id="bar"></div></div>
+  <div class="lm" id="lmsg">Initializing database…</div>
+  <div class="le" id="lerr"></div>
+  <button class="lr" id="lretry" onclick="boot()">↺ Retry</button>
+</div>
+
+<div id="app" style="display:none">
+  <header>
+    <div class="logo">✦ Lorcana Vault <em>/ Illumineer's Archive</em></div>
+    <div class="nav-tabs">
+      <button class="nav-tab on" id="ntBrowse" onclick="switchTab('browse')">Browse</button>
+      <button class="nav-tab" id="ntDecks" onclick="switchTab('decks')">Decks <span id="deckCountBadge" style="font-size:.6rem;color:var(--dim)"></span></button>
+    </div>
+    <div class="sw">
+      <span class="si">⌕</span>
+      <input type="text" id="srch" placeholder="Search cards…">
+    </div>
+    <div class="hr">
+      <div class="pill" id="cpill">0 collected</div>
+      <button class="btn" id="cbtn" onclick="togColl()">Show Collected</button>
+      <button class="btn" onclick="openImp()">⊕ Import</button>
+    </div>
+  </header>
+
+  <!-- ── BROWSE TAB ── -->
+  <div id="tabBrowse" style="display:flex;flex:1">
+    <div class="side" id="browseSide">
+      <div class="fs"><h3>Ink Color</h3><div class="chips">
+        <button class="chip" data-ink="Amber"    onclick="tf('ink','Amber',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#f59e0b" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>Amber</button>
+        <button class="chip" data-ink="Amethyst" onclick="tf('ink','Amethyst',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#a855f7" d="M12 2L2 8l2 13h16l2-13L12 2zm0 3.5l7 4.5-1.5 9.5h-11L5 10l7-4.5z"/></svg>Amethyst</button>
+        <button class="chip" data-ink="Emerald"  onclick="tf('ink','Emerald',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#10b981" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>Emerald</button>
+        <button class="chip" data-ink="Ruby"     onclick="tf('ink','Ruby',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#ef4444" d="M12 2L4 8l1 6 7 8 7-8 1-6-8-6z"/></svg>Ruby</button>
+        <button class="chip" data-ink="Sapphire" onclick="tf('ink','Sapphire',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#3b82f6" d="M12 2L2 7l2.5 8L12 22l7.5-7L22 7 12 2zm0 3.5L19 8l-1.8 5.5L12 18l-5.2-4.5L5 8l7-2.5z"/></svg>Sapphire</button>
+        <button class="chip" data-ink="Steel"    onclick="tf('ink','Steel',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#94a3b8" d="M12 2L4 6v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4zm0 2.18l6 3V12c0 4.52-3.14 8.74-6 10-2.86-1.26-6-5.48-6-10V7.18l6-3z"/></svg>Steel</button>
+      </div></div>
+      <div class="fs"><h3>Rarity</h3><div class="chips">
+        <button class="chip" data-rarity="Common"     onclick="tf('rarity','Common',this)">Common</button>
+        <button class="chip" data-rarity="Uncommon"   onclick="tf('rarity','Uncommon',this)">Uncommon</button>
+        <button class="chip" data-rarity="Rare"       onclick="tf('rarity','Rare',this)">Rare</button>
+        <button class="chip" data-rarity="Super_rare" onclick="tf('rarity','Super_rare',this)">Super Rare</button>
+        <button class="chip" data-rarity="Legendary"  onclick="tf('rarity','Legendary',this)">Legendary</button>
+        <button class="chip" data-rarity="Enchanted"  onclick="tf('rarity','Enchanted',this)">Enchanted</button>
+        <button class="chip" data-rarity="Epic"       onclick="tf('rarity','Epic',this)">Epic</button>
+        <button class="chip" data-rarity="Iconic"     onclick="tf('rarity','Iconic',this)">Iconic</button>
+      </div></div>
+      <div class="fs"><h3>Card Type</h3>
+        <div class="chips">
+          <button class="chip" data-type="Character"  onclick="tf('type','Character',this)">Character</button>
+          <button class="chip" data-type-exact="Action" onclick="tf('typeExact','Action',this)">Action only</button>
+          <button class="chip" data-type="Item"       onclick="tf('type','Item',this)">Item</button>
+          <button class="chip" data-type="Location"   onclick="tf('type','Location',this)">Location</button>
+        </div>
+        <div class="chips" id="bActionSubChips" style="margin-top:.3rem;padding-top:.3rem;border-top:1px solid var(--bdr)"></div>
+      </div>
+      <div class="fs" id="bClassSection">
+        <h3>Classification</h3>
+        <div class="chips-wrap">
+          <div class="chips chips-overflow collapsed" id="bClassChips"></div>
+          <button class="show-more-btn" id="bClassToggle" onclick="toggleClassExpand('b')">Show all ▾</button>
+        </div>
+      </div>
+      <div class="fs"><h3>Set</h3><div class="chips" id="setChips"></div></div>
+      <div class="fs"><h3>Ink Cost</h3><div class="cr-w">
+        <div class="cr-l"><span>Min: <span id="cmn">0</span></span><span>Max: <span id="cmx">10+</span></span></div>
+        <input type="range" id="rmin" min="0" max="10" value="0" oninput="updCost()">
+        <input type="range" id="rmax" min="0" max="10" value="10" oninput="updCost()">
+      </div></div>
+      <div class="fs"><h3>Inkwell</h3><div class="chips">
+        <button class="chip" data-iw="1" onclick="tf('inkwell','1',this)">Inkable</button>
+        <button class="chip" data-iw="0" onclick="tf('inkwell','0',this)">Non-inkable</button>
+      </div></div>
+      <div class="fs"><h3>Keywords</h3><div class="chips" id="bKwChips"></div></div>
+      <div class="fs"><h3>Lore</h3><div class="cr-w">
+        <div class="cr-l"><span>Min: <span id="blmn">—</span></span><span>Max: <span id="blmx">—</span></span><button class="cr-clr" id="blclr" onclick="clrStat('l','b')" style="display:none">×</button></div>
+        <input type="range" id="blmin" min="0" max="4" value="0" oninput="updStat('l','b')">
+        <input type="range" id="blmax" min="0" max="4" value="4" oninput="updStat('l','b')">
+      </div></div>
+      <div class="fs"><h3>Strength</h3><div class="cr-w">
+        <div class="cr-l"><span>Min: <span id="bsmn">—</span></span><span>Max: <span id="bsmx">—</span></span><button class="cr-clr" id="bsclr" onclick="clrStat('s','b')" style="display:none">×</button></div>
+        <input type="range" id="bsmin" min="0" max="10" value="0" oninput="updStat('s','b')">
+        <input type="range" id="bsmax" min="0" max="10" value="10" oninput="updStat('s','b')">
+      </div></div>
+      <div class="fs"><h3>Willpower</h3><div class="cr-w">
+        <div class="cr-l"><span>Min: <span id="bwmn">—</span></span><span>Max: <span id="bwmx">—</span></span><button class="cr-clr" id="bwclr" onclick="clrStat('w','b')" style="display:none">×</button></div>
+        <input type="range" id="bwmin" min="0" max="10" value="0" oninput="updStat('w','b')">
+        <input type="range" id="bwmax" min="0" max="10" value="10" oninput="updStat('w','b')">
+      </div></div>
+      <button class="clrb" onclick="clrAll()">Clear all filters</button>
+    </div>
+    <div class="content" id="cnt">
+      <div class="toolbar">
+        <select class="ss" id="srt" onchange="run()">
+          <option value="na">Name A→Z</option><option value="nd">Name Z→A</option>
+          <option value="ca">Cost ↑</option><option value="cd">Cost ↓</option>
+          <option value="rar">Rarity</option><option value="col">Set / No.</option>
+        </select>
+        <div class="vt">
+          <button class="vb on" id="gbtn" onclick="sv('g')" title="Grid">⊞</button>
+          <button class="vb" id="lbtn" onclick="sv('l')" title="List">☰</button>
+        </div>
+        <div class="rc" id="rc"></div>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="pag" id="pag"></div>
+    </div>
+  </div>
+
+  <!-- ── DECKS TAB ── -->
+  <div id="tabDecks" style="display:none;flex:1">
+    <!-- Deck list/overview page -->
+    <div id="decksHome" class="decks-page">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem">
+        <div>
+          <div style="font-family:'Cinzel',serif;font-size:1.15rem;color:var(--al)">Your Decks</div>
+          <div style="font-size:.82rem;color:var(--dim);margin-top:2px">Build and manage your Lorcana decks</div>
+        </div>
+        <button class="btn on" onclick="createNewDeck()">⊕ New Deck</button>
+      </div>
+      <div class="decks-grid" id="decksList"></div>
+    </div>
+
+    <!-- Deck builder page -->
+    <div id="deckBuilder" style="display:none;flex:1;flex-direction:column">
+      <div class="deck-layout">
+        <!-- LEFT: filtered card picker -->
+        <div class="deck-picker">
+          <!-- Reuse same sidebar filters but this side has its own toolbar -->
+          <div style="display:flex;flex:1;min-height:0">
+            <div class="side" id="deckSide">
+              <div class="fs"><h3>Ink Color</h3><div class="chips">
+                <button class="chip" data-ink="Amber"    onclick="dtf('ink','Amber',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#f59e0b" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>Amber</button>
+                <button class="chip" data-ink="Amethyst" onclick="dtf('ink','Amethyst',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#a855f7" d="M12 2L2 8l2 13h16l2-13L12 2zm0 3.5l7 4.5-1.5 9.5h-11L5 10l7-4.5z"/></svg>Amethyst</button>
+                <button class="chip" data-ink="Emerald"  onclick="dtf('ink','Emerald',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#10b981" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>Emerald</button>
+                <button class="chip" data-ink="Ruby"     onclick="dtf('ink','Ruby',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#ef4444" d="M12 2L4 8l1 6 7 8 7-8 1-6-8-6z"/></svg>Ruby</button>
+                <button class="chip" data-ink="Sapphire" onclick="dtf('ink','Sapphire',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#3b82f6" d="M12 2L2 7l2.5 8L12 22l7.5-7L22 7 12 2zm0 3.5L19 8l-1.8 5.5L12 18l-5.2-4.5L5 8l7-2.5z"/></svg>Sapphire</button>
+                <button class="chip" data-ink="Steel"    onclick="dtf('ink','Steel',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#94a3b8" d="M12 2L4 6v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4zm0 2.18l6 3V12c0 4.52-3.14 8.74-6 10-2.86-1.26-6-5.48-6-10V7.18l6-3z"/></svg>Steel</button>
+              </div></div>
+              <div class="fs"><h3>Rarity</h3><div class="chips">
+                <button class="chip" data-rarity="Common"     onclick="dtf('rarity','Common',this)">Common</button>
+                <button class="chip" data-rarity="Uncommon"   onclick="dtf('rarity','Uncommon',this)">Uncommon</button>
+                <button class="chip" data-rarity="Rare"       onclick="dtf('rarity','Rare',this)">Rare</button>
+                <button class="chip" data-rarity="Super_rare" onclick="dtf('rarity','Super_rare',this)">Super Rare</button>
+                <button class="chip" data-rarity="Legendary"  onclick="dtf('rarity','Legendary',this)">Legendary</button>
+                <button class="chip" data-rarity="Enchanted"  onclick="dtf('rarity','Enchanted',this)">Enchanted</button>
+                <button class="chip" data-rarity="Epic"       onclick="dtf('rarity','Epic',this)">Epic</button>
+                <button class="chip" data-rarity="Iconic"     onclick="dtf('rarity','Iconic',this)">Iconic</button>
+              </div></div>
+              <div class="fs"><h3>Card Type</h3>
+                <div class="chips">
+                  <button class="chip" data-type="Character"  onclick="dtf('type','Character',this)">Character</button>
+                  <button class="chip" data-type-exact="Action" onclick="dtf('typeExact','Action',this)">Action only</button>
+                  <button class="chip" data-type="Item"       onclick="dtf('type','Item',this)">Item</button>
+                  <button class="chip" data-type="Location"   onclick="dtf('type','Location',this)">Location</button>
+                </div>
+                <div class="chips" id="dActionSubChips" style="margin-top:.3rem;padding-top:.3rem;border-top:1px solid var(--bdr)"></div>
+              </div>
+              <div class="fs" id="dClassSection">
+                <h3>Classification</h3>
+                <div class="chips-wrap">
+                  <div class="chips chips-overflow collapsed" id="dClassChips"></div>
+                  <button class="show-more-btn" id="dClassToggle" onclick="toggleClassExpand('d')">Show all ▾</button>
+                </div>
+              </div>
+              <div class="fs"><h3>Set</h3><div class="chips" id="dsetChips"></div></div>
+              <div class="fs"><h3>Ink Cost</h3><div class="cr-w">
+                <div class="cr-l"><span>Min: <span id="dcmn">0</span></span><span>Max: <span id="dcmx">10+</span></span></div>
+                <input type="range" id="drmin" min="0" max="10" value="0" oninput="updDCost()">
+                <input type="range" id="drmax" min="0" max="10" value="10" oninput="updDCost()">
+              </div></div>
+              <div class="fs"><h3>Inkwell</h3><div class="chips">
+                <button class="chip" data-iw="1" onclick="dtf('inkwell','1',this)">Inkable</button>
+                <button class="chip" data-iw="0" onclick="dtf('inkwell','0',this)">Non-inkable</button>
+              </div></div>
+              <div class="fs"><h3>Keywords</h3><div class="chips" id="dKwChips"></div></div>
+              <div class="fs"><h3>Lore</h3><div class="cr-w">
+                <div class="cr-l"><span>Min: <span id="dlmn">—</span></span><span>Max: <span id="dlmx">—</span></span><button class="cr-clr" id="dlclr" onclick="clrStat('l','d')" style="display:none">×</button></div>
+                <input type="range" id="dlmin" min="0" max="4" value="0" oninput="updStat('l','d')">
+                <input type="range" id="dlmax" min="0" max="4" value="4" oninput="updStat('l','d')">
+              </div></div>
+              <div class="fs"><h3>Strength</h3><div class="cr-w">
+                <div class="cr-l"><span>Min: <span id="dsmn">—</span></span><span>Max: <span id="dsmx">—</span></span><button class="cr-clr" id="dsclr" onclick="clrStat('s','d')" style="display:none">×</button></div>
+                <input type="range" id="dsmin" min="0" max="10" value="0" oninput="updStat('s','d')">
+                <input type="range" id="dsmax" min="0" max="10" value="10" oninput="updStat('s','d')">
+              </div></div>
+              <div class="fs"><h3>Willpower</h3><div class="cr-w">
+                <div class="cr-l"><span>Min: <span id="dwmn">—</span></span><span>Max: <span id="dwmx">—</span></span><button class="cr-clr" id="dwclr" onclick="clrStat('w','d')" style="display:none">×</button></div>
+                <input type="range" id="dwmin" min="0" max="10" value="0" oninput="updStat('w','d')">
+                <input type="range" id="dwmax" min="0" max="10" value="10" oninput="updStat('w','d')">
+              </div></div>
+              <button class="clrb" onclick="dclrAll()">Clear all filters</button>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+              <div class="deck-picker-toolbar">
+                <select class="ss" id="dsrt" onchange="drun()">
+                  <option value="na">Name A→Z</option><option value="nd">Name Z→A</option>
+                  <option value="ca">Cost ↑</option><option value="cd">Cost ↓</option>
+                  <option value="rar">Rarity</option>
+                </select>
+                <div class="vt">
+                  <button class="vb" id="dFiltDeck"    onclick="toggleDeckFilter('deck')"      title="Show only cards in deck">In Deck</button>
+                  <button class="vb" id="dFiltSB"      onclick="toggleDeckFilter('sideboard')" title="Show only sideboard cards">In Sideboard</button>
+                </div>
+                <div class="vt">
+                  <button class="vb on" id="dgbtn" onclick="dsv('g')" title="Grid">⊞</button>
+                  <button class="vb" id="dlbtn" onclick="dsv('l')" title="List">☰</button>
+                </div>
+                <div class="rc" id="drc" style="margin-left:auto"></div>
+              </div>
+              <div class="deck-picker-grid">
+                <div class="grid" id="dgrid"></div>
+                <div class="pag" id="dpag"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="deck-resizer" id="deckResizer"></div>
+
+        <!-- RIGHT: deck panel -->
+        <div class="deck-panel">
+          <div class="deck-panel-hdr">
+            <div class="deck-selector">
+              <input class="deck-name-input" id="deckNameInput" placeholder="Deck name…" style="display:block">
+              <button class="btn on" onclick="saveDeck()" style="font-size:.65rem;padding:.34rem .7rem">Save</button>
+              <button class="btn" onclick="backToDecks()" style="font-size:.65rem;padding:.34rem .7rem">← Back</button>
+            </div>
+            <div class="deck-actions">
+              <button class="btn danger" id="deleteDeckBtn" onclick="deleteCurDeck()" style="font-size:.62rem;padding:.3rem .6rem">Delete Deck</button>
+              <button class="btn" onclick="openDeckImport()" style="font-size:.62rem;padding:.3rem .6rem">⊕ Import List</button>
+            </div>
+          </div>
+
+          <button class="stats-toggle" onclick="toggleDeckStats(this)" aria-expanded="false">
+            <span class="stats-toggle-lbl">Statistics</span>
+            <span class="stats-toggle-arr">▾</span>
+          </button>
+
+          <div class="deck-scroll">
+            <div class="stats-body" id="deckStatsBody">
+              <div class="deck-stats" id="deckStats">
+                <div class="dstat"><div class="dstat-l">Cards</div><div class="dstat-v" id="dsTot">0</div></div>
+                <div class="dstat"><div class="dstat-l">Unique</div><div class="dstat-v" id="dsUniq">0</div></div>
+                <div class="dstat"><div class="dstat-l">Avg Cost</div><div class="dstat-v" id="dsAvg">—</div></div>
+                <div class="dstat"><div class="dstat-l">Inks</div><div class="dstat-v" id="dsInks">—</div></div>
+              </div>
+
+              <div class="curve-section">
+                <div class="curve-label">Ink Curve</div>
+                <div class="curve-bars" id="curveBars"></div>
+              </div>
+
+              <div class="ink-comp" id="inkComp"></div>
+
+              <div class="deck-breakdown" id="deckBreakdown"></div>
+            </div>
+
+            <div class="deck-list" id="deckList"></div>
+            <div id="deckSideboard"></div>
+          </div>
+
+          <div class="deck-footer">
+            <button class="btn" onclick="exportDeckTxt()" style="font-size:.63rem;padding:.34rem .7rem">Export Text</button>
+            <button class="btn" onclick="copyDeckTxt()" style="font-size:.63rem;padding:.34rem .7rem">Copy List</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CARD HOVER PREVIEW -->
+<div id="cardPreview">
+  <div class="pv-img"><img id="pvImg" src="" alt=""></div>
+  <div class="pv-body">
+    <div class="pv-name" id="pvName"></div>
+    <div class="pv-ver" id="pvVer"></div>
+    <div class="pv-chips" id="pvChips"></div>
+    <div class="pv-stats" id="pvStats"></div>
+    <div class="pv-text" id="pvText"></div>
+    <div class="pv-price" id="pvPrice"></div>
+  </div>
+</div>
+
+<!-- DETAIL MODAL -->
+<div class="ov h" id="dmod" onclick="cdmod(event)">
+  <div class="mod">
+    <button class="mcl" onclick="cmod()">✕</button>
+    <div class="mi" id="mimg"></div>
+    <div class="mb" id="mbod"></div>
+  </div>
+</div>
+
+<!-- IMPORT (collection) MODAL -->
+<div class="ov h" id="imod" onclick="cimod(event)">
+  <div class="imp">
+    <button class="mcl" onclick="closeImod()">✕</button>
+    <div class="it2">Import Collection</div>
+    <div class="isub">One card per line. Matched cards will be marked as collected.<br>
+      <code>2x Mickey Mouse - Brave Little Tailor</code><br><code>Elsa - Spirit of Winter</code>
+    </div>
+    <textarea class="ita" id="itxt" placeholder="2x Mickey Mouse - Brave Little Tailor&#10;Elsa - Spirit of Winter&#10;..."></textarea>
+    <div class="ires" id="ires">Paste your list then click Import.</div>
+    <div class="iact">
+      <button class="btn on" onclick="doImport()">Import &amp; Mark Collected</button>
+      <button class="btn" onclick="closeImod()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- DECK IMPORT MODAL -->
+<div class="ov h" id="dimod" onclick="if(event.target===this)closeDImod()">
+  <div class="imp">
+    <button class="mcl" onclick="closeDImod()">✕</button>
+    <div class="it2">Import Deck List</div>
+    <div class="isub">Import cards directly into the current deck.<br>
+      <code>2x Elsa - Spirit of Winter</code><br><code>Mickey Mouse - Brave Little Tailor</code>
+    </div>
+    <textarea class="ita" id="ditxt" placeholder="4x Mickey Mouse - Brave Little Tailor&#10;2x Elsa - Spirit of Winter&#10;..."></textarea>
+    <div class="ires" id="dires">Paste a list then click Import.</div>
+    <div class="iact">
+      <button class="btn on" onclick="doDeckImport()">Import to Deck</button>
+      <button class="btn" onclick="closeDImod()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.min.js"></script>
+<script>
+// $$LORCANA_LOGIC$$
+// $$LORCANA_APP$$
+</script>
+</body>
+</html>
