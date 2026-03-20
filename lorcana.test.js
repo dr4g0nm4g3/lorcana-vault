@@ -24,7 +24,7 @@
 
 'use strict';
 
-const { test, describe } = require('node:test');
+const { test, describe, before } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   normStr,
@@ -1055,49 +1055,97 @@ describe('deckFilterIds', () => {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 14. DB integration (requires sql.js)
+//
+// Uses node:test's before() hook to initialise the database synchronously
+// before any test runs. This avoids the async describe() race condition where
+// db would be null when nested describe bodies execute.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('DB integration', async () => {
-  const db = await makeDb();
+describe('DB integration', () => {
+  // db is set in before() and shared across all nested describes/tests.
+  let db = null;
 
-  if (!db) {
-    test('SKIPPED – sql.js not available in this environment', () => {
-      // mark as passing so the suite doesn't fail in network-restricted CI
+  before(async () => {
+    db = await makeDb();
+
+    if (!db) return; // tests will skip themselves when db is null
+
+    // ── card_canonical seed data ──────────────────────────────────────────
+    // Inserted once before any test runs.
+
+    // Deduplication / MIN(id) tests
+    insertCard(db, { id: 'uniq_a1',    name: 'Unique Card',        version: 'Alpha', set_code: '1', rarity: 'Common' });
+    insertCard(db, { id: 'uniq_a2',    name: 'Unique Card',        version: 'Alpha', set_code: '2', rarity: 'Rare' });
+    insertCard(db, { id: 'canon_aa',   name: 'Canon Test',         version: null,    set_code: '1', rarity: 'Common' });
+    insertCard(db, { id: 'canon_bb',   name: 'Canon Test',         version: null,    set_code: '2', rarity: 'Rare' });
+    insertCard(db, { id: 'ver_v1',     name: 'Versioned',          version: 'V1',    set_code: '1' });
+    insertCard(db, { id: 'ver_v2',     name: 'Versioned',          version: 'V2',    set_code: '1' });
+    insertCard(db, { id: 'apos_smart', name: 'A Pirate\u2019s Life', version: null,  set_code: '1' });
+    insertCard(db, { id: 'apos_plain', name: "A Pirate's Life",    version: null,    set_code: '2' });
+
+    // Filter query test cards (prefix 'filt_')
+    insertCard(db, {
+      id: 'filt_amber1', name: 'Amber Hero', version: null,
+      ink: 'Amber', cost: 3, inkwell: 1, rarity: 'Common',
+      types: '["Character"]', classes: '["Hero"]',
+      lore: 2, str: 3, wil: 2, keywords: '["Rush"]', set_code: '1',
     });
-    return;
-  }
+    insertCard(db, {
+      id: 'filt_amber2', name: 'Amber Villain', version: null,
+      ink: 'Amber', cost: 5, inkwell: 0, rarity: 'Rare',
+      types: '["Character"]', classes: '["Villain"]',
+      lore: 3, str: 5, wil: 4, keywords: '["Evasive"]', set_code: '1',
+    });
+    insertCard(db, {
+      id: 'filt_sap1', name: 'Sapphire Action', version: null,
+      ink: 'Sapphire', cost: 2, inkwell: 1, rarity: 'Common',
+      types: '["Action"]', classes: '[]',
+      lore: null, str: null, wil: null, keywords: '[]', set_code: '2',
+    });
+    insertCard(db, {
+      id: 'filt_leg1', name: 'Legendary Hero', version: null,
+      ink: 'Ruby', cost: 7, inkwell: 1, rarity: 'Legendary',
+      types: '["Character"]', classes: '["Hero"]',
+      lore: 4, str: 8, wil: 6, keywords: '["Shift","Rush"]', set_code: '1',
+    });
+
+    // Rarity art selection test cards (prefix 'rarity_' / 'rarity2_')
+    insertCard(db, { id: 'rarity_common',  name: 'Rarity Test Card',  version: null, rarity: 'Common',    set_code: '1' });
+    insertCard(db, { id: 'rarity_rare',    name: 'Rarity Test Card',  version: null, rarity: 'Rare',      set_code: '2' });
+    insertCard(db, { id: 'rarity_enc',     name: 'Rarity Test Card',  version: null, rarity: 'Enchanted', set_code: '3' });
+    insertCard(db, { id: 'rarity2_common', name: 'Rarity Test Card2', version: null, rarity: 'Common',    set_code: '1' });
+    insertCard(db, { id: 'rarity2_rare',   name: 'Rarity Test Card2', version: null, rarity: 'Rare',      set_code: '2' });
+    insertCard(db, { id: 'rarity2_enc',    name: 'Rarity Test Card2', version: null, rarity: 'Enchanted', set_code: '3' });
+  });
 
   // ── card_canonical view ──────────────────────────────────────────────────
 
   describe('card_canonical view', () => {
-    test('deduplicates reprints of the same card', () => {
-      // Insert the same card from two different sets
-      insertCard(db, { id: 'uniq_a1', name: 'Unique Card', version: 'Alpha', set_code: '1', rarity: 'Common' });
-      insertCard(db, { id: 'uniq_a2', name: 'Unique Card', version: 'Alpha', set_code: '2', rarity: 'Rare' });
+    test('SKIPPED – sql.js not available', (t) => {
+      if (!db) t.skip('sql.js not installed');
+    });
+
+    test('deduplicates reprints of the same card', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name='Unique Card' AND version='Alpha'`);
       assert.equal(count, 1);
     });
 
-    test('uses MIN(id) to pick the canonical row', () => {
-      insertCard(db, { id: 'canon_aa', name: 'Canon Test', version: null, set_code: '1', rarity: 'Common' });
-      insertCard(db, { id: 'canon_bb', name: 'Canon Test', version: null, set_code: '2', rarity: 'Rare' });
+    test('uses MIN(id) to pick the canonical row', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const rows = queryRows(db, `SELECT id FROM card_canonical WHERE name='Canon Test'`);
       assert.equal(rows.length, 1);
-      // MIN('canon_aa','canon_bb') = 'canon_aa'
-      assert.equal(rows[0].id, 'canon_aa');
+      assert.equal(rows[0].id, 'canon_aa'); // MIN('canon_aa','canon_bb')
     });
 
-    test('treats cards with different versions as distinct', () => {
-      insertCard(db, { id: 'ver_v1', name: 'Versioned', version: 'V1', set_code: '1' });
-      insertCard(db, { id: 'ver_v2', name: 'Versioned', version: 'V2', set_code: '1' });
+    test('treats cards with different versions as distinct', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name='Versioned'`);
       assert.equal(count, 2);
     });
 
-    test('normalises Unicode apostrophes for deduplication', () => {
-      // U+2019 right single quotation mark vs plain apostrophe
-      insertCard(db, { id: 'apos_smart', name: 'A Pirate\u2019s Life', version: null, set_code: '1' });
-      insertCard(db, { id: 'apos_plain', name: "A Pirate's Life",    version: null, set_code: '2' });
+    test('normalises Unicode apostrophes for deduplication', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name LIKE '%Pirate%'`);
       assert.equal(count, 1);
     });
@@ -1106,198 +1154,142 @@ describe('DB integration', async () => {
   // ── Basic filtering queries ───────────────────────────────────────────────
 
   describe('filter queries', () => {
-    // Seed a small card set for filter tests (inserted synchronously at registration time)
-    const filterId = {};
-
-    // Insert test cards (prefix 'filt_' to avoid collisions with other tests)
-    filterId.amber1 = insertCard(db, {
-      id: 'filt_amber1', name: 'Amber Hero', version: null,
-      ink: 'Amber', cost: 3, inkwell: 1, rarity: 'Common',
-      types: '["Character"]', classes: '["Hero"]',
-      lore: 2, str: 3, wil: 2,
-      keywords: '["Rush"]', set_code: '1',
-    });
-    filterId.amber2 = insertCard(db, {
-      id: 'filt_amber2', name: 'Amber Villain', version: null,
-      ink: 'Amber', cost: 5, inkwell: 0, rarity: 'Rare',
-      types: '["Character"]', classes: '["Villain"]',
-      lore: 3, str: 5, wil: 4,
-      keywords: '["Evasive"]', set_code: '1',
-    });
-    filterId.sapphire1 = insertCard(db, {
-      id: 'filt_sap1', name: 'Sapphire Action', version: null,
-      ink: 'Sapphire', cost: 2, inkwell: 1, rarity: 'Common',
-      types: '["Action"]', classes: '[]',
-      lore: null, str: null, wil: null,
-      keywords: '[]', set_code: '2',
-    });
-    filterId.legendary = insertCard(db, {
-      id: 'filt_leg1', name: 'Legendary Hero', version: null,
-      ink: 'Ruby', cost: 7, inkwell: 1, rarity: 'Legendary',
-      types: '["Character"]', classes: '["Hero"]',
-      lore: 4, str: 8, wil: 6,
-      keywords: '["Shift","Rush"]', set_code: '1',
-    });
-
-    test('no filter returns all canonical cards (across test data)', () => {
+    test('no filter returns all canonical cards', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const total = queryCount(db, 'SELECT COUNT(*) FROM card_canonical');
       assert.ok(total > 0);
     });
 
-    test('ink filter returns only cards of that ink', () => {
-      const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE ink='Amber'`);
-      const rows = queryRows(db, `SELECT ink FROM card_canonical WHERE name LIKE 'Amber%'`);
+    test('ink filter returns only cards of that ink', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT ink FROM card_canonical WHERE name LIKE 'filt_%' AND ink='Amber'`);
+      assert.ok(rows.length > 0);
       rows.forEach(r => assert.equal(r.ink, 'Amber'));
     });
 
-    test('cost range filter excludes cards outside range', () => {
-      // cost >= 4 AND cost <= 6 should include Amber Villain (5) and Legendary (7 excluded)
+    test('cost range filter excludes cards outside range', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const rows = queryRows(db, `
         SELECT name, cost FROM card_canonical
         WHERE name LIKE 'filt_%' AND (cost >= 4 AND (cost <= 6 OR 6 >= 10))
       `);
       const names = rows.map(r => r.name);
-      assert.ok(names.includes('Amber Villain'));
-      assert.ok(!names.includes('Amber Hero'));     // cost 3, excluded
-      assert.ok(!names.includes('Legendary Hero')); // cost 7, excluded
+      assert.ok(names.includes('Amber Villain'));      // cost 5 ✓
+      assert.ok(!names.includes('Amber Hero'));        // cost 3 ✗
+      assert.ok(!names.includes('Legendary Hero'));    // cost 7 ✗
     });
 
-    test('cost max >= 10 means no upper bound', () => {
+    test('cost max >= 10 means no upper bound', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const rows = queryRows(db, `
         SELECT name FROM card_canonical
         WHERE name LIKE 'filt_%' AND (cost >= 0 AND (cost <= 10 OR 10 >= 10))
       `);
-      const names = rows.map(r => r.name);
-      assert.ok(names.includes('Legendary Hero'));
+      assert.ok(rows.map(r => r.name).includes('Legendary Hero'));
     });
 
-    test('inkwell filter works', () => {
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND inkwell=0
-      `);
+    test('inkwell filter works', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND inkwell=0`);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].name, 'Amber Villain');
     });
 
-    test('type filter matches Character cards', () => {
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND types LIKE '%"Character"%'
-      `);
+    test('type filter matches Character cards', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND types LIKE '%"Character"%'`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Hero'));
       assert.ok(!names.includes('Sapphire Action'));
     });
 
-    test('typeExact filter matches only pure Action cards', () => {
+    test('typeExact filter matches only pure Action cards', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const rows = queryRows(db, `
         SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%'
-          AND json_array_length(types)=1 AND types LIKE '%"Action"%'
+        WHERE name LIKE 'filt_%' AND json_array_length(types)=1 AND types LIKE '%"Action"%'
       `);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].name, 'Sapphire Action');
     });
 
-    test('classification filter matches Hero cards', () => {
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND classes LIKE '%"Hero"%'
-      `);
+    test('classification filter matches Hero cards', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND classes LIKE '%"Hero"%'`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Hero'));
       assert.ok(names.includes('Legendary Hero'));
       assert.ok(!names.includes('Amber Villain'));
     });
 
-    test('lore range filter excludes cards outside range', () => {
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND lore >= 3 AND lore <= 4
-      `);
+    test('lore range filter excludes cards outside range', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND lore >= 3 AND lore <= 4`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Villain'));   // lore 3
       assert.ok(names.includes('Legendary Hero'));  // lore 4
       assert.ok(!names.includes('Amber Hero'));     // lore 2
     });
 
-    test('lore filter naturally excludes non-Character cards with NULL lore', () => {
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND lore >= 1 AND lore <= 4
-      `);
-      const names = rows.map(r => r.name);
-      assert.ok(!names.includes('Sapphire Action')); // lore is NULL
+    test('lore filter naturally excludes cards with NULL lore', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND lore >= 1 AND lore <= 4`);
+      assert.ok(!rows.map(r => r.name).includes('Sapphire Action')); // lore NULL
     });
 
-    test('str (strength) range filter', () => {
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND str >= 5 AND str <= 10
-      `);
+    test('str (strength) range filter', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND str >= 5 AND str <= 10`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Villain'));   // str 5
       assert.ok(names.includes('Legendary Hero'));  // str 8
       assert.ok(!names.includes('Amber Hero'));     // str 3
     });
 
-    test('wil (willpower) range filter', () => {
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND wil >= 4 AND wil <= 10
-      `);
+    test('wil (willpower) range filter', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND wil >= 4 AND wil <= 10`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Villain'));   // wil 4
       assert.ok(names.includes('Legendary Hero'));  // wil 6
       assert.ok(!names.includes('Amber Hero'));     // wil 2
     });
 
-    test('keyword filter with AND logic (both keywords required)', () => {
-      // Legendary Hero has both "Shift" and "Rush"
+    test('keyword filter AND logic (both keywords required)', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const rows = queryRows(db, `
         SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%'
-          AND keywords LIKE '%"Shift"%'
-          AND keywords LIKE '%"Rush"%'
+        WHERE name LIKE 'filt_%' AND keywords LIKE '%"Shift"%' AND keywords LIKE '%"Rush"%'
       `);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].name, 'Legendary Hero');
     });
 
-    test('keyword filter with single keyword (Rush)', () => {
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND keywords LIKE '%"Rush"%'
-      `);
+    test('keyword filter with single keyword (Rush)', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND keywords LIKE '%"Rush"%'`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Hero'));
       assert.ok(names.includes('Legendary Hero'));
       assert.ok(!names.includes('Amber Villain')); // only "Evasive"
     });
 
-    test('set_code filter', () => {
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND set_code IN ('2')
-      `);
+    test('set_code filter', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND set_code IN ('2')`);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].name, 'Sapphire Action');
     });
 
-    test('text search (name LIKE)', () => {
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE '%Villain%'
-      `);
+    test('text search (name LIKE)', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE '%Villain%'`);
       assert.ok(rows.some(r => r.name === 'Amber Villain'));
     });
 
-    test('combined ink + rarity filter', () => {
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND ink='Amber' AND rarity='Rare'
-      `);
+    test('combined ink + rarity filter', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND ink='Amber' AND rarity='Rare'`);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].name, 'Amber Villain');
     });
@@ -1307,28 +1299,16 @@ describe('DB integration', async () => {
 
   describe('rarity-based art selection', () => {
     const RARITY_RANK_SQL = `CASE rarity
-      WHEN 'Iconic'     THEN 0
-      WHEN 'Epic'       THEN 1
-      WHEN 'Enchanted'  THEN 2
-      WHEN 'Legendary'  THEN 3
-      WHEN 'Super_rare' THEN 4
-      WHEN 'Rare'       THEN 5
-      WHEN 'Uncommon'   THEN 6
-      ELSE 7 END`;
+      WHEN 'Iconic'     THEN 0 WHEN 'Epic'       THEN 1
+      WHEN 'Enchanted'  THEN 2 WHEN 'Legendary'  THEN 3
+      WHEN 'Super_rare' THEN 4 WHEN 'Rare'       THEN 5
+      WHEN 'Uncommon'   THEN 6 ELSE 7 END`;
 
-    // Insert the same card at multiple rarities (synchronously at registration time)
-    const CARD_NAME = 'Rarity Test Card';
-    insertCard(db, { id: 'rarity_common', name: CARD_NAME,       version: null, rarity: 'Common',    set_code: '1' });
-    insertCard(db, { id: 'rarity_rare',   name: CARD_NAME,       version: null, rarity: 'Rare',      set_code: '2' });
-    insertCard(db, { id: 'rarity_enc',    name: CARD_NAME,       version: null, rarity: 'Enchanted', set_code: '3' });
-    insertCard(db, { id: 'rarity2_common', name: CARD_NAME+'2',  version: null, rarity: 'Common',    set_code: '1' });
-    insertCard(db, { id: 'rarity2_rare',   name: CARD_NAME+'2',  version: null, rarity: 'Rare',      set_code: '2' });
-    insertCard(db, { id: 'rarity2_enc',    name: CARD_NAME+'2',  version: null, rarity: 'Enchanted', set_code: '3' });
-
-    test('when filtering by Enchanted, picks Enchanted row over Common/Rare', () => {
+    test('when filtering by Enchanted, picks Enchanted row over Common/Rare', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const rows = queryRows(db, `
         SELECT c.id, c.rarity FROM cards c
-        WHERE c.name LIKE '${CARD_NAME}%'
+        WHERE c.name LIKE 'Rarity Test Card%'
           AND c.rarity IN ('Enchanted')
           AND c.id = (
             SELECT c2.id FROM cards c2
@@ -1338,13 +1318,15 @@ describe('DB integration', async () => {
             LIMIT 1
           )
       `);
+      assert.ok(rows.length > 0);
       rows.forEach(r => assert.equal(r.rarity, 'Enchanted'));
     });
 
-    test('when filtering by Rare+Enchanted, picks Enchanted (higher priority)', () => {
+    test('when filtering by Rare+Enchanted, picks Enchanted (higher priority)', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const rows = queryRows(db, `
         SELECT c.id, c.rarity FROM cards c
-        WHERE c.name = '${CARD_NAME}2'
+        WHERE c.name = 'Rarity Test Card2'
           AND c.rarity IN ('Rare','Enchanted')
           AND c.id = (
             SELECT c2.id FROM cards c2
@@ -1358,10 +1340,11 @@ describe('DB integration', async () => {
       assert.equal(rows[0].rarity, 'Enchanted');
     });
 
-    test('when filtering by Common only, returns Common row', () => {
+    test('when filtering by Common only, returns Common row', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const rows = queryRows(db, `
         SELECT c.rarity FROM cards c
-        WHERE c.name = '${CARD_NAME}2'
+        WHERE c.name = 'Rarity Test Card2'
           AND c.rarity IN ('Common')
           AND c.id = (
             SELECT c2.id FROM cards c2
@@ -1375,25 +1358,21 @@ describe('DB integration', async () => {
       assert.equal(rows[0].rarity, 'Common');
     });
 
-    test('no rarity filter uses card_canonical (earliest print, Common)', () => {
-      const rows = queryRows(db, `
-        SELECT id, rarity FROM card_canonical WHERE name='${CARD_NAME}2'
-      `);
+    test('no rarity filter uses card_canonical (earliest print by MIN id)', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const rows = queryRows(db, `SELECT id, rarity FROM card_canonical WHERE name='Rarity Test Card2'`);
       assert.equal(rows.length, 1);
-      // MIN('rarity2_common','rarity2_enc','rarity2_rare') = 'rarity2_common'
-      assert.equal(rows[0].id, 'rarity2_common');
+      assert.equal(rows[0].id, 'rarity2_common'); // MIN('rarity2_common','rarity2_enc','rarity2_rare')
     });
   });
 
   // ── ID-based deck/sideboard filter ───────────────────────────────────────
 
   describe('dDeckFilter id-based restriction', () => {
-    test('restricting to specific IDs returns only those cards', () => {
+    test('restricting to specific IDs returns only those cards', (t) => {
+      if (!db) return t.skip('sql.js not installed');
       const ids = ['filt_amber1', 'filt_sap1'];
-      const placeholders = ids.map(() => '?').join(',');
-      const rows = queryRows(db, `
-        SELECT id FROM card_canonical WHERE id IN (${placeholders})
-      `, ids);
+      const rows = queryRows(db, `SELECT id FROM card_canonical WHERE id IN (${ids.map(()=>'?').join(',')})`, ids);
       const returnedIds = new Set(rows.map(r => r.id));
       assert.ok(returnedIds.has('filt_amber1'));
       assert.ok(returnedIds.has('filt_sap1'));
@@ -1401,17 +1380,12 @@ describe('DB integration', async () => {
       assert.ok(!returnedIds.has('filt_leg1'));
     });
 
-    test('empty ID list returns no results', () => {
-      const count = queryCount(db, `
-        SELECT COUNT(*) FROM card_canonical WHERE 1=0
-      `);
+    test('empty ID list returns no results', (t) => {
+      if (!db) return t.skip('sql.js not installed');
+      const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE 1=0`);
       assert.equal(count, 0);
     });
   });
-
-  // db is in-memory and scoped to this process — no explicit close needed.
-  // Calling db.close() here would race against async test execution and close
-  // the database before the tests run, causing 'Database closed' errors.
 });
 
 console.log('\n✓ Test file loaded — running with: node --test lorcana.test.js\n');
