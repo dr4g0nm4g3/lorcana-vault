@@ -1106,10 +1106,8 @@ describe('DB integration', async () => {
   // ── Basic filtering queries ───────────────────────────────────────────────
 
   describe('filter queries', () => {
-    // Seed a small card set for filter tests
+    // Seed a small card set for filter tests (inserted synchronously at registration time)
     const filterId = {};
-
-    test.before?.(() => {});
 
     // Insert test cards (prefix 'filt_' to avoid collisions with other tests)
     filterId.amber1 = insertCard(db, {
@@ -1318,18 +1316,14 @@ describe('DB integration', async () => {
       WHEN 'Uncommon'   THEN 6
       ELSE 7 END`;
 
-    // Insert the same card at multiple rarities
+    // Insert the same card at multiple rarities (synchronously at registration time)
     const CARD_NAME = 'Rarity Test Card';
-    test.before?.(() => {
-      insertCard(db, { id: 'rarity_common', name: CARD_NAME, version: null, rarity: 'Common',    set_code: '1' });
-      insertCard(db, { id: 'rarity_rare',   name: CARD_NAME, version: null, rarity: 'Rare',      set_code: '2' });
-      insertCard(db, { id: 'rarity_enc',    name: CARD_NAME, version: null, rarity: 'Enchanted', set_code: '3' });
-    });
-
-    // Manually run the before for environments without test.before
-    insertCard(db, { id: 'rarity2_common', name: CARD_NAME+'2', version: null, rarity: 'Common',    set_code: '1' });
-    insertCard(db, { id: 'rarity2_rare',   name: CARD_NAME+'2', version: null, rarity: 'Rare',      set_code: '2' });
-    insertCard(db, { id: 'rarity2_enc',    name: CARD_NAME+'2', version: null, rarity: 'Enchanted', set_code: '3' });
+    insertCard(db, { id: 'rarity_common', name: CARD_NAME,       version: null, rarity: 'Common',    set_code: '1' });
+    insertCard(db, { id: 'rarity_rare',   name: CARD_NAME,       version: null, rarity: 'Rare',      set_code: '2' });
+    insertCard(db, { id: 'rarity_enc',    name: CARD_NAME,       version: null, rarity: 'Enchanted', set_code: '3' });
+    insertCard(db, { id: 'rarity2_common', name: CARD_NAME+'2',  version: null, rarity: 'Common',    set_code: '1' });
+    insertCard(db, { id: 'rarity2_rare',   name: CARD_NAME+'2',  version: null, rarity: 'Rare',      set_code: '2' });
+    insertCard(db, { id: 'rarity2_enc',    name: CARD_NAME+'2',  version: null, rarity: 'Enchanted', set_code: '3' });
 
     test('when filtering by Enchanted, picks Enchanted row over Common/Rare', () => {
       const rows = queryRows(db, `
@@ -1415,7 +1409,9 @@ describe('DB integration', async () => {
     });
   });
 
-  db.close?.();
+  // db is in-memory and scoped to this process — no explicit close needed.
+  // Calling db.close() here would race against async test execution and close
+  // the database before the tests run, causing 'Database closed' errors.
 });
 
 console.log('\n✓ Test file loaded — running with: node --test lorcana.test.js\n');
