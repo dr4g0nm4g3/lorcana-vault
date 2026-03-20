@@ -24,7 +24,7 @@
 
 'use strict';
 
-const { test, describe, before } = require('node:test');
+const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   normStr,
@@ -1056,96 +1056,67 @@ describe('deckFilterIds', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // 14. DB integration (requires sql.js)
 //
-// Uses node:test's before() hook to initialise the database synchronously
-// before any test runs. This avoids the async describe() race condition where
-// db would be null when nested describe bodies execute.
+// Each test creates its own fresh in-memory database and inserts exactly the
+// data it needs. This avoids all async timing issues with shared state and
+// before() hooks in node:test.
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// Helper: create a fresh DB seeded with 4 standard filter test cards.
+// Uses individual db.run() calls with bound parameters — the safest sql.js API.
+// Returns null when sql.js is unavailable.
+async function makeFilterDb() {
+  const db = await makeDb();
+  if (!db) return null;
+  const INS = `INSERT INTO cards(id,name,cost,inkwell,ink,types,classes,str,wil,lore,rarity,keywords,set_code,set_name) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  db.run(INS, ['filt_amber1','Amber Hero',  3,1,'Amber',   '["Character"]','["Hero"]',   3,2,2,'Common',   '["Rush"]',        '1','Test Set']);
+  db.run(INS, ['filt_amber2','Amber Villain',5,0,'Amber',  '["Character"]','["Villain"]',5,4,3,'Rare',     '["Evasive"]',     '1','Test Set']);
+  db.run(INS, ['filt_sap1', 'Sapphire Action',2,1,'Sapphire','["Action"]','[]',null,null,null,'Common',  '[]',              '2','Test Set']);
+  db.run(INS, ['filt_leg1', 'Legendary Hero',7,1,'Ruby',   '["Character"]','["Hero"]',   8,6,4,'Legendary','["Shift","Rush"]','1','Test Set']);
+  return db;
+}
+
 describe('DB integration', () => {
-  // db is set in before() and shared across all nested describes/tests.
-  let db = null;
-
-  before(async () => {
-    db = await makeDb();
-
-    if (!db) return; // tests will skip themselves when db is null
-
-    // ── card_canonical seed data ──────────────────────────────────────────
-    // Inserted once before any test runs. Any error here will fail the suite.
-    try {
-
-    // Deduplication / MIN(id) tests
-    insertCard(db, { id: 'uniq_a1',    name: 'Unique Card',        version: 'Alpha', set_code: '1', rarity: 'Common' });
-    insertCard(db, { id: 'uniq_a2',    name: 'Unique Card',        version: 'Alpha', set_code: '2', rarity: 'Rare' });
-    insertCard(db, { id: 'canon_aa',   name: 'Canon Test',         version: null,    set_code: '1', rarity: 'Common' });
-    insertCard(db, { id: 'canon_bb',   name: 'Canon Test',         version: null,    set_code: '2', rarity: 'Rare' });
-    insertCard(db, { id: 'ver_v1',     name: 'Versioned',          version: 'V1',    set_code: '1' });
-    insertCard(db, { id: 'ver_v2',     name: 'Versioned',          version: 'V2',    set_code: '1' });
-    insertCard(db, { id: 'apos_smart', name: 'A Pirate\u2019s Life', version: null,  set_code: '1' });
-    insertCard(db, { id: 'apos_plain', name: "A Pirate's Life",    version: null,    set_code: '2' });
-
-    // Filter query test cards (prefix 'filt_')
-    insertCard(db, {
-      id: 'filt_amber1', name: 'Amber Hero', version: null,
-      ink: 'Amber', cost: 3, inkwell: 1, rarity: 'Common',
-      types: '["Character"]', classes: '["Hero"]',
-      lore: 2, str: 3, wil: 2, keywords: '["Rush"]', set_code: '1',
-    });
-    insertCard(db, {
-      id: 'filt_amber2', name: 'Amber Villain', version: null,
-      ink: 'Amber', cost: 5, inkwell: 0, rarity: 'Rare',
-      types: '["Character"]', classes: '["Villain"]',
-      lore: 3, str: 5, wil: 4, keywords: '["Evasive"]', set_code: '1',
-    });
-    insertCard(db, {
-      id: 'filt_sap1', name: 'Sapphire Action', version: null,
-      ink: 'Sapphire', cost: 2, inkwell: 1, rarity: 'Common',
-      types: '["Action"]', classes: '[]',
-      lore: null, str: null, wil: null, keywords: '[]', set_code: '2',
-    });
-    insertCard(db, {
-      id: 'filt_leg1', name: 'Legendary Hero', version: null,
-      ink: 'Ruby', cost: 7, inkwell: 1, rarity: 'Legendary',
-      types: '["Character"]', classes: '["Hero"]',
-      lore: 4, str: 8, wil: 6, keywords: '["Shift","Rush"]', set_code: '1',
-    });
-
-    // Rarity art selection test cards (prefix 'rarity_' / 'rarity2_')
-    insertCard(db, { id: 'rarity_common',  name: 'Rarity Test Card',  version: null, rarity: 'Common',    set_code: '1' });
-    insertCard(db, { id: 'rarity_rare',    name: 'Rarity Test Card',  version: null, rarity: 'Rare',      set_code: '2' });
-    insertCard(db, { id: 'rarity_enc',     name: 'Rarity Test Card',  version: null, rarity: 'Enchanted', set_code: '3' });
-    insertCard(db, { id: 'rarity2_common', name: 'Rarity Test Card2', version: null, rarity: 'Common',    set_code: '1' });
-    insertCard(db, { id: 'rarity2_rare',   name: 'Rarity Test Card2', version: null, rarity: 'Rare',      set_code: '2' });
-    insertCard(db, { id: 'rarity2_enc',    name: 'Rarity Test Card2', version: null, rarity: 'Enchanted', set_code: '3' });
-    } catch (err) {
-      throw new Error(`DB seed failed: ${err.message}`);
-    }
-  });
 
   // ── card_canonical view ──────────────────────────────────────────────────
 
   describe('card_canonical view', () => {
-    test('deduplicates reprints of the same card', (t) => {
+    test('deduplicates reprints of the same card', async (t) => {
+      const db = await makeDb();
       if (!db) return t.skip('sql.js not installed');
+      const INS = `INSERT INTO cards(id,name,version,set_code,rarity) VALUES(?,?,?,?,?)`;
+      db.run(INS, ['uniq_a1', 'Unique Card', 'Alpha', '1', 'Common']);
+      db.run(INS, ['uniq_a2', 'Unique Card', 'Alpha', '2', 'Rare']);
       const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name='Unique Card' AND version='Alpha'`);
       assert.equal(count, 1);
     });
 
-    test('uses MIN(id) to pick the canonical row', (t) => {
+    test('uses MIN(id) to pick the canonical row', async (t) => {
+      const db = await makeDb();
       if (!db) return t.skip('sql.js not installed');
+      const INS = `INSERT INTO cards(id,name,set_code,rarity) VALUES(?,?,?,?)`;
+      db.run(INS, ['canon_aa', 'Canon Test', '1', 'Common']);
+      db.run(INS, ['canon_bb', 'Canon Test', '2', 'Rare']);
       const rows = queryRows(db, `SELECT id FROM card_canonical WHERE name='Canon Test'`);
       assert.equal(rows.length, 1);
-      assert.equal(rows[0].id, 'canon_aa'); // MIN('canon_aa','canon_bb')
+      assert.equal(rows[0].id, 'canon_aa');
     });
 
-    test('treats cards with different versions as distinct', (t) => {
+    test('treats cards with different versions as distinct', async (t) => {
+      const db = await makeDb();
       if (!db) return t.skip('sql.js not installed');
+      const INS = `INSERT INTO cards(id,name,version,set_code) VALUES(?,?,?,?)`;
+      db.run(INS, ['ver_v1', 'Versioned', 'V1', '1']);
+      db.run(INS, ['ver_v2', 'Versioned', 'V2', '1']);
       const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name='Versioned'`);
       assert.equal(count, 2);
     });
 
-    test('normalises Unicode apostrophes for deduplication', (t) => {
+    test('normalises Unicode apostrophes for deduplication', async (t) => {
+      const db = await makeDb();
       if (!db) return t.skip('sql.js not installed');
+      const INS = `INSERT INTO cards(id,name,set_code) VALUES(?,?,?)`;
+      db.run(INS, ['apos_smart', 'A Pirate\u2019s Life', '1']); // U+2019 right single quote
+      db.run(INS, ['apos_plain', "A Pirate's Life",      '2']); // plain apostrophe
       const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name LIKE '%Pirate%'`);
       assert.equal(count, 1);
     });
@@ -1154,142 +1125,147 @@ describe('DB integration', () => {
   // ── Basic filtering queries ───────────────────────────────────────────────
 
   describe('filter queries', () => {
-    test('no filter returns all canonical cards', (t) => {
+    test('no filter returns cards from DB', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
       const total = queryCount(db, 'SELECT COUNT(*) FROM card_canonical');
       assert.ok(total > 0);
     });
 
-    test('ink filter returns only cards of that ink', (t) => {
+    test('ink filter returns only cards of that ink', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `SELECT ink FROM card_canonical WHERE name LIKE 'filt_%' AND ink='Amber'`);
+      const rows = queryRows(db, `SELECT ink FROM card_canonical WHERE ink='Amber'`);
       assert.ok(rows.length > 0);
       rows.forEach(r => assert.equal(r.ink, 'Amber'));
     });
 
-    test('cost range filter excludes cards outside range', (t) => {
+    test('cost range filter excludes cards outside range', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `
-        SELECT name, cost FROM card_canonical
-        WHERE name LIKE 'filt_%' AND (cost >= 4 AND (cost <= 6 OR 6 >= 10))
-      `);
+      const rows = queryRows(db, `SELECT name, cost FROM card_canonical WHERE cost >= 4 AND (cost <= 6 OR 6 >= 10)`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Villain'));      // cost 5 ✓
       assert.ok(!names.includes('Amber Hero'));        // cost 3 ✗
       assert.ok(!names.includes('Legendary Hero'));    // cost 7 ✗
     });
 
-    test('cost max >= 10 means no upper bound', (t) => {
+    test('cost max >= 10 means no upper bound', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND (cost >= 0 AND (cost <= 10 OR 10 >= 10))
-      `);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE cost >= 0 AND (cost <= 10 OR 10 >= 10)`);
       assert.ok(rows.map(r => r.name).includes('Legendary Hero'));
     });
 
-    test('inkwell filter works', (t) => {
+    test('inkwell filter works', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND inkwell=0`);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE inkwell=0`);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].name, 'Amber Villain');
     });
 
-    test('type filter matches Character cards', (t) => {
+    test('type filter matches Character cards', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND types LIKE '%"Character"%'`);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE types LIKE '%"Character"%'`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Hero'));
       assert.ok(!names.includes('Sapphire Action'));
     });
 
-    test('typeExact filter matches only pure Action cards', (t) => {
+    test('typeExact filter matches only pure Action cards', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND json_array_length(types)=1 AND types LIKE '%"Action"%'
-      `);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE json_array_length(types)=1 AND types LIKE '%"Action"%'`);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].name, 'Sapphire Action');
     });
 
-    test('classification filter matches Hero cards', (t) => {
+    test('classification filter matches Hero cards', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND classes LIKE '%"Hero"%'`);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE classes LIKE '%"Hero"%'`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Hero'));
       assert.ok(names.includes('Legendary Hero'));
       assert.ok(!names.includes('Amber Villain'));
     });
 
-    test('lore range filter excludes cards outside range', (t) => {
+    test('lore range filter excludes cards outside range', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND lore >= 3 AND lore <= 4`);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE lore >= 3 AND lore <= 4`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Villain'));   // lore 3
       assert.ok(names.includes('Legendary Hero'));  // lore 4
       assert.ok(!names.includes('Amber Hero'));     // lore 2
     });
 
-    test('lore filter naturally excludes cards with NULL lore', (t) => {
+    test('lore filter naturally excludes cards with NULL lore', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND lore >= 1 AND lore <= 4`);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE lore >= 1 AND lore <= 4`);
       assert.ok(!rows.map(r => r.name).includes('Sapphire Action')); // lore NULL
     });
 
-    test('str (strength) range filter', (t) => {
+    test('str (strength) range filter', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND str >= 5 AND str <= 10`);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE str >= 5 AND str <= 10`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Villain'));   // str 5
       assert.ok(names.includes('Legendary Hero'));  // str 8
       assert.ok(!names.includes('Amber Hero'));     // str 3
     });
 
-    test('wil (willpower) range filter', (t) => {
+    test('wil (willpower) range filter', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND wil >= 4 AND wil <= 10`);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE wil >= 4 AND wil <= 10`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Villain'));   // wil 4
       assert.ok(names.includes('Legendary Hero'));  // wil 6
       assert.ok(!names.includes('Amber Hero'));     // wil 2
     });
 
-    test('keyword filter AND logic (both keywords required)', (t) => {
+    test('keyword filter AND logic (both keywords required)', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `
-        SELECT name FROM card_canonical
-        WHERE name LIKE 'filt_%' AND keywords LIKE '%"Shift"%' AND keywords LIKE '%"Rush"%'
-      `);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE keywords LIKE '%"Shift"%' AND keywords LIKE '%"Rush"%'`);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].name, 'Legendary Hero');
     });
 
-    test('keyword filter with single keyword (Rush)', (t) => {
+    test('keyword filter with single keyword (Rush)', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND keywords LIKE '%"Rush"%'`);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE keywords LIKE '%"Rush"%'`);
       const names = rows.map(r => r.name);
       assert.ok(names.includes('Amber Hero'));
       assert.ok(names.includes('Legendary Hero'));
       assert.ok(!names.includes('Amber Villain')); // only "Evasive"
     });
 
-    test('set_code filter', (t) => {
+    test('set_code filter', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND set_code IN ('2')`);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE set_code IN ('2')`);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].name, 'Sapphire Action');
     });
 
-    test('text search (name LIKE)', (t) => {
+    test('text search (name LIKE)', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
       const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE '%Villain%'`);
       assert.ok(rows.some(r => r.name === 'Amber Villain'));
     });
 
-    test('combined ink + rarity filter', (t) => {
+    test('combined ink + rarity filter', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE name LIKE 'filt_%' AND ink='Amber' AND rarity='Rare'`);
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE ink='Amber' AND rarity='Rare'`);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].name, 'Amber Villain');
     });
@@ -1304,72 +1280,72 @@ describe('DB integration', () => {
       WHEN 'Super_rare' THEN 4 WHEN 'Rare'       THEN 5
       WHEN 'Uncommon'   THEN 6 ELSE 7 END`;
 
-    test('when filtering by Enchanted, picks Enchanted row over Common/Rare', (t) => {
+    test('when filtering by Enchanted, picks Enchanted row over Common/Rare', async (t) => {
+      const db = await makeDb();
       if (!db) return t.skip('sql.js not installed');
+      const INS = `INSERT INTO cards(id,name,set_code,rarity) VALUES(?,?,?,?)`;
+      db.run(INS, ['r_common', 'Rarity Test Card', '1', 'Common']);
+      db.run(INS, ['r_rare',   'Rarity Test Card', '2', 'Rare']);
+      db.run(INS, ['r_enc',    'Rarity Test Card', '3', 'Enchanted']);
       const rows = queryRows(db, `
         SELECT c.id, c.rarity FROM cards c
-        WHERE c.name LIKE 'Rarity Test Card%'
-          AND c.rarity IN ('Enchanted')
-          AND c.id = (
-            SELECT c2.id FROM cards c2
-            WHERE c2.name = c.name AND COALESCE(c2.version,'')=COALESCE(c.version,'')
-              AND c2.rarity IN ('Enchanted')
-            ORDER BY ${RARITY_RANK_SQL.replace(/rarity/g, 'c2.rarity')}, c2.id
-            LIMIT 1
-          )
-      `);
-      assert.ok(rows.length > 0);
-      rows.forEach(r => assert.equal(r.rarity, 'Enchanted'));
-    });
-
-    test('when filtering by Rare+Enchanted, picks Enchanted (higher priority)', (t) => {
-      if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `
-        SELECT c.id, c.rarity FROM cards c
-        WHERE c.name = 'Rarity Test Card2'
-          AND c.rarity IN ('Rare','Enchanted')
-          AND c.id = (
-            SELECT c2.id FROM cards c2
-            WHERE c2.name = c.name AND COALESCE(c2.version,'')=COALESCE(c.version,'')
-              AND c2.rarity IN ('Rare','Enchanted')
-            ORDER BY ${RARITY_RANK_SQL.replace(/rarity/g, 'c2.rarity')}, c2.id
-            LIMIT 1
-          )
+        WHERE c.name='Rarity Test Card' AND c.rarity IN ('Enchanted')
+          AND c.id=(SELECT c2.id FROM cards c2 WHERE c2.name=c.name AND COALESCE(c2.version,'')=COALESCE(c.version,'') AND c2.rarity IN ('Enchanted') ORDER BY ${RARITY_RANK_SQL.replace(/rarity/g,'c2.rarity')},c2.id LIMIT 1)
       `);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].rarity, 'Enchanted');
     });
 
-    test('when filtering by Common only, returns Common row', (t) => {
+    test('when filtering by Rare+Enchanted, picks Enchanted (higher priority)', async (t) => {
+      const db = await makeDb();
       if (!db) return t.skip('sql.js not installed');
+      const INS = `INSERT INTO cards(id,name,set_code,rarity) VALUES(?,?,?,?)`;
+      db.run(INS, ['r2_common', 'Rarity Test Card2', '1', 'Common']);
+      db.run(INS, ['r2_rare',   'Rarity Test Card2', '2', 'Rare']);
+      db.run(INS, ['r2_enc',    'Rarity Test Card2', '3', 'Enchanted']);
+      const rows = queryRows(db, `
+        SELECT c.id, c.rarity FROM cards c
+        WHERE c.name='Rarity Test Card2' AND c.rarity IN ('Rare','Enchanted')
+          AND c.id=(SELECT c2.id FROM cards c2 WHERE c2.name=c.name AND COALESCE(c2.version,'')=COALESCE(c.version,'') AND c2.rarity IN ('Rare','Enchanted') ORDER BY ${RARITY_RANK_SQL.replace(/rarity/g,'c2.rarity')},c2.id LIMIT 1)
+      `);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].rarity, 'Enchanted');
+    });
+
+    test('when filtering by Common only, returns Common row', async (t) => {
+      const db = await makeDb();
+      if (!db) return t.skip('sql.js not installed');
+      const INS = `INSERT INTO cards(id,name,set_code,rarity) VALUES(?,?,?,?)`;
+      db.run(INS, ['r3_common', 'Rarity Test Card3', '1', 'Common']);
+      db.run(INS, ['r3_rare',   'Rarity Test Card3', '2', 'Rare']);
+      db.run(INS, ['r3_enc',    'Rarity Test Card3', '3', 'Enchanted']);
       const rows = queryRows(db, `
         SELECT c.rarity FROM cards c
-        WHERE c.name = 'Rarity Test Card2'
-          AND c.rarity IN ('Common')
-          AND c.id = (
-            SELECT c2.id FROM cards c2
-            WHERE c2.name = c.name AND COALESCE(c2.version,'')=COALESCE(c.version,'')
-              AND c2.rarity IN ('Common')
-            ORDER BY ${RARITY_RANK_SQL.replace(/rarity/g, 'c2.rarity')}, c2.id
-            LIMIT 1
-          )
+        WHERE c.name='Rarity Test Card3' AND c.rarity IN ('Common')
+          AND c.id=(SELECT c2.id FROM cards c2 WHERE c2.name=c.name AND COALESCE(c2.version,'')=COALESCE(c.version,'') AND c2.rarity IN ('Common') ORDER BY ${RARITY_RANK_SQL.replace(/rarity/g,'c2.rarity')},c2.id LIMIT 1)
       `);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].rarity, 'Common');
     });
 
-    test('no rarity filter uses card_canonical (earliest print by MIN id)', (t) => {
+    test('no rarity filter uses card_canonical (earliest print by MIN id)', async (t) => {
+      const db = await makeDb();
       if (!db) return t.skip('sql.js not installed');
-      const rows = queryRows(db, `SELECT id, rarity FROM card_canonical WHERE name='Rarity Test Card2'`);
+      const INS = `INSERT INTO cards(id,name,set_code,rarity) VALUES(?,?,?,?)`;
+      db.run(INS, ['r4_common', 'Rarity Test Card4', '1', 'Common']);
+      db.run(INS, ['r4_enc',    'Rarity Test Card4', '3', 'Enchanted']);
+      db.run(INS, ['r4_rare',   'Rarity Test Card4', '2', 'Rare']);
+      const rows = queryRows(db, `SELECT id, rarity FROM card_canonical WHERE name='Rarity Test Card4'`);
       assert.equal(rows.length, 1);
-      assert.equal(rows[0].id, 'rarity2_common'); // MIN('rarity2_common','rarity2_enc','rarity2_rare')
+      assert.equal(rows[0].id, 'r4_common'); // MIN('r4_common','r4_enc','r4_rare')
     });
   });
 
   // ── ID-based deck/sideboard filter ───────────────────────────────────────
 
   describe('dDeckFilter id-based restriction', () => {
-    test('restricting to specific IDs returns only those cards', (t) => {
+    test('restricting to specific IDs returns only those cards', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
       const ids = ['filt_amber1', 'filt_sap1'];
       const rows = queryRows(db, `SELECT id FROM card_canonical WHERE id IN (${ids.map(()=>'?').join(',')})`, ids);
@@ -1380,7 +1356,8 @@ describe('DB integration', () => {
       assert.ok(!returnedIds.has('filt_leg1'));
     });
 
-    test('empty ID list returns no results', (t) => {
+    test('empty ID list returns no results', async (t) => {
+      const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
       const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE 1=0`);
       assert.equal(count, 0);
