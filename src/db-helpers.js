@@ -47,7 +47,9 @@ async function makeDb() {
   const S = await getSqlJs();
   if (!S) return null;
   const db = new S.Database();
-  db.run(SCHEMA);
+  // db.run() only executes the first statement in a multi-statement string.
+  // db.exec() handles multiple semicolon-separated statements correctly.
+  db.exec(SCHEMA);
   return db;
 }
 

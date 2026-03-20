@@ -1071,7 +1071,8 @@ describe('DB integration', () => {
     if (!db) return; // tests will skip themselves when db is null
 
     // ── card_canonical seed data ──────────────────────────────────────────
-    // Inserted once before any test runs.
+    // Inserted once before any test runs. Any error here will fail the suite.
+    try {
 
     // Deduplication / MIN(id) tests
     insertCard(db, { id: 'uniq_a1',    name: 'Unique Card',        version: 'Alpha', set_code: '1', rarity: 'Common' });
@@ -1116,15 +1117,14 @@ describe('DB integration', () => {
     insertCard(db, { id: 'rarity2_common', name: 'Rarity Test Card2', version: null, rarity: 'Common',    set_code: '1' });
     insertCard(db, { id: 'rarity2_rare',   name: 'Rarity Test Card2', version: null, rarity: 'Rare',      set_code: '2' });
     insertCard(db, { id: 'rarity2_enc',    name: 'Rarity Test Card2', version: null, rarity: 'Enchanted', set_code: '3' });
+    } catch (err) {
+      throw new Error(`DB seed failed: ${err.message}`);
+    }
   });
 
   // ── card_canonical view ──────────────────────────────────────────────────
 
   describe('card_canonical view', () => {
-    test('SKIPPED – sql.js not available', (t) => {
-      if (!db) t.skip('sql.js not installed');
-    });
-
     test('deduplicates reprints of the same card', (t) => {
       if (!db) return t.skip('sql.js not installed');
       const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name='Unique Card' AND version='Alpha'`);
