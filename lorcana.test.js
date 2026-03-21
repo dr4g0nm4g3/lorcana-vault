@@ -13,6 +13,7 @@
 //   5. migrateDeck      – deck-level migration
 //   6. Deck mutations   – add / remove / setQty / toggleFoil (main deck)
 //   7. Sideboard        – add / remove / setQty / toggleFoil (sideboard)
+//   7b.Print swapping   – swapCardPrint / swapSideboardPrint
 //   8. Statistics       – totalCards / unique / avgCost / inkCounts
 //   9. Export           – formatDeckLine / buildDeckText
 //  10. Import parsing   – parseDeckImportText
@@ -40,6 +41,8 @@ const {
   removeCardFromSideboard,
   setSideboardCardQty,
   toggleSideboardFoil,
+  swapCardPrint,
+  swapSideboardPrint,
   deckTotalCards,
   sideboardTotalCards,
   deckUniqueCards,
@@ -496,6 +499,171 @@ describe('toggleSideboardFoil', () => {
     deck.sideboard['s1'] = { qty: 4, foil: false };
     toggleSideboardFoil(deck, 's1');
     assert.equal(deck.sideboard['s1'].qty, 4);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 7b. Print swapping
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('swapCardPrint', () => {
+  test('replaces old card ID with new ID, preserving qty and foil', () => {
+    const deck = mkDeck();
+    deck.cards['old_print'] = { qty: 3, foil: true };
+    swapCardPrint(deck, 'old_print', 'new_print');
+    assert.equal(deck.cards['old_print'], undefined);
+    assert.deepEqual(deck.cards['new_print'], { qty: 3, foil: true });
+  });
+
+  test('is a no-op when oldId === newId', () => {
+    const deck = mkDeck();
+    deck.cards['c1'] = { qty: 2, foil: false };
+    swapCardPrint(deck, 'c1', 'c1');
+    assert.deepEqual(deck.cards['c1'], { qty: 2, foil: false });
+  });
+
+  test('is a no-op when oldId is not in the deck', () => {
+    const deck = mkDeck();
+    swapCardPrint(deck, 'missing', 'new_print');
+    assert.equal(deck.cards['new_print'], undefined);
+  });
+
+  test('merges quantities when newId already exists in deck', () => {
+    const deck = mkDeck();
+    deck.cards['print_a'] = { qty: 2, foil: false };
+    deck.cards['print_b'] = { qty: 1, foil: false };
+    swapCardPrint(deck, 'print_a', 'print_b');
+    // print_a removed, print_b qty = 1 + 2 = 3
+    assert.equal(deck.cards['print_a'], undefined);
+    assert.equal(deck.cards['print_b'].qty, 3);
+  });
+
+  test('merged entry carries foil=true if either entry was foil', () => {
+    const deck = mkDeck();
+    deck.cards['print_a'] = { qty: 1, foil: true };
+    deck.cards['print_b'] = { qty: 1, foil: false };
+    swapCardPrint(deck, 'print_a', 'print_b');
+    assert.equal(deck.cards['print_b'].foil, true);
+  });
+
+  test('merged entry foil=false when neither entry was foil', () => {
+    const deck = mkDeck();
+    deck.cards['print_a'] = { qty: 2, foil: false };
+    deck.cards['print_b'] = { qty: 1, foil: false };
+    swapCardPrint(deck, 'print_a', 'print_b');
+    assert.equal(deck.cards['print_b'].foil, false);
+    assert.equal(deck.cards['print_b'].qty, 3);
+  });
+
+  test('migrates legacy plain-number entry on swap', () => {
+    const deck = mkDeck();
+    deck.cards['old_print'] = 4; // legacy format
+    swapCardPrint(deck, 'old_print', 'new_print');
+    assert.equal(deck.cards['old_print'], undefined);
+    assert.deepEqual(deck.cards['new_print'], { qty: 4, foil: false });
+  });
+
+  test('does not affect sideboard', () => {
+    const deck = mkDeck();
+    deck.cards['old_print'] = { qty: 1, foil: false };
+    deck.sideboard['old_print'] = { qty: 1, foil: false };
+    swapCardPrint(deck, 'old_print', 'new_print');
+    // deck.cards swapped, sideboard untouched
+    assert.equal(deck.cards['old_print'], undefined);
+    assert.deepEqual(deck.sideboard['old_print'], { qty: 1, foil: false });
+    assert.equal(deck.sideboard['new_print'], undefined);
+  });
+
+  test('deckTotalCards is unchanged after a simple swap', () => {
+    const deck = mkDeck();
+    deck.cards['old_print'] = { qty: 3, foil: false };
+    const before = deckTotalCards(deck);
+    swapCardPrint(deck, 'old_print', 'new_print');
+    assert.equal(deckTotalCards(deck), before);
+  });
+
+  test('deckTotalCards is unchanged after a merge swap', () => {
+    const deck = mkDeck();
+    deck.cards['print_a'] = { qty: 2, foil: false };
+    deck.cards['print_b'] = { qty: 1, foil: false };
+    const before = deckTotalCards(deck);
+    swapCardPrint(deck, 'print_a', 'print_b');
+    assert.equal(deckTotalCards(deck), before);
+  });
+
+  test('deckUniqueCards decreases by 1 on a merge swap', () => {
+    const deck = mkDeck();
+    deck.cards['print_a'] = { qty: 1, foil: false };
+    deck.cards['print_b'] = { qty: 1, foil: false };
+    const before = deckUniqueCards(deck);
+    swapCardPrint(deck, 'print_a', 'print_b');
+    assert.equal(deckUniqueCards(deck), before - 1);
+  });
+
+  test('deckUniqueCards unchanged on a simple swap (no merge)', () => {
+    const deck = mkDeck();
+    deck.cards['old_print'] = { qty: 2, foil: false };
+    const before = deckUniqueCards(deck);
+    swapCardPrint(deck, 'old_print', 'new_print');
+    assert.equal(deckUniqueCards(deck), before);
+  });
+});
+
+describe('swapSideboardPrint', () => {
+  test('replaces old sideboard ID with new ID, preserving qty and foil', () => {
+    const deck = mkDeck();
+    deck.sideboard['old_sb'] = { qty: 2, foil: true };
+    swapSideboardPrint(deck, 'old_sb', 'new_sb');
+    assert.equal(deck.sideboard['old_sb'], undefined);
+    assert.deepEqual(deck.sideboard['new_sb'], { qty: 2, foil: true });
+  });
+
+  test('is a no-op when oldId === newId', () => {
+    const deck = mkDeck();
+    deck.sideboard['s1'] = { qty: 1, foil: false };
+    swapSideboardPrint(deck, 's1', 's1');
+    assert.deepEqual(deck.sideboard['s1'], { qty: 1, foil: false });
+  });
+
+  test('is a no-op when oldId is not in sideboard', () => {
+    const deck = mkDeck();
+    swapSideboardPrint(deck, 'missing', 'new_sb');
+    assert.equal(deck.sideboard['new_sb'], undefined);
+  });
+
+  test('merges quantities when newId already exists in sideboard', () => {
+    const deck = mkDeck();
+    deck.sideboard['sb_a'] = { qty: 2, foil: false };
+    deck.sideboard['sb_b'] = { qty: 1, foil: true };
+    swapSideboardPrint(deck, 'sb_a', 'sb_b');
+    assert.equal(deck.sideboard['sb_a'], undefined);
+    assert.equal(deck.sideboard['sb_b'].qty, 3);
+    assert.equal(deck.sideboard['sb_b'].foil, true); // foil preserved from existing
+  });
+
+  test('initialises sideboard when absent', () => {
+    const deck = { id: 'd1', name: 'x', cards: {} }; // no sideboard key
+    // should not throw
+    swapSideboardPrint(deck, 'missing', 'new_sb');
+    assert.ok('sideboard' in deck);
+  });
+
+  test('does not affect deck.cards', () => {
+    const deck = mkDeck();
+    deck.cards['old_sb'] = { qty: 1, foil: false };
+    deck.sideboard['old_sb'] = { qty: 1, foil: false };
+    swapSideboardPrint(deck, 'old_sb', 'new_sb');
+    // deck.cards untouched
+    assert.deepEqual(deck.cards['old_sb'], { qty: 1, foil: false });
+    assert.equal(deck.cards['new_sb'], undefined);
+  });
+
+  test('sideboardTotalCards unchanged after swap', () => {
+    const deck = mkDeck();
+    deck.sideboard['old_sb'] = { qty: 3, foil: false };
+    const before = sideboardTotalCards(deck);
+    swapSideboardPrint(deck, 'old_sb', 'new_sb');
+    assert.equal(sideboardTotalCards(deck), before);
   });
 });
 

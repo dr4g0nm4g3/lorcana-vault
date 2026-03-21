@@ -6,6 +6,7 @@ let page = 1, dpage = 1;
 let dDeckFilter = null; // null | 'deck' | 'sideboard'
 let deckListSort  = 'cost-asc'; // 'cost-asc' | 'cost-desc' | 'name-asc' | 'name-desc'
 let deckListGroup = 'none';     // 'none' | 'rarity' | 'cost' | 'type' | 'ink' | 'set'
+let expandedPrintId = null;     // card id whose print picker is open, or null
 const PG = 48;
 let view = 'g', dview = 'g';
 let collOnly = false;
@@ -816,6 +817,10 @@ function setDeckListGroup(val){
   document.querySelectorAll('.dl-group-btn').forEach(b=>b.classList.toggle('on',b.dataset.group===val));
   renderDeckPanel();
 }
+function togglePrintPicker(id){
+  expandedPrintId = expandedPrintId===id ? null : id;
+  renderDeckPanel();
+}
 
 function toggleDeckStats(btn){
   const body=document.getElementById('deckStatsBody');
@@ -937,6 +942,16 @@ function setDeckFoil(cardId){
   const deck=getCurDeck();if(!deck)return;
   const e=cardEntry(deck,cardId);if(!e)return;
   deck.cards[cardId]={qty:e.qty,foil:!e.foil};
+  saveDecks();renderDeckPanel();drun();
+}
+
+// Swap a card entry to a different printing of the same card.
+// Delegates to the pure swapCardPrint / swapSideboardPrint functions in lorcana.js.
+function setDeckPrint(oldId, newId, isMain){
+  const deck=getCurDeck();if(!deck)return;
+  if(isMain) swapCardPrint(deck, oldId, newId);
+  else swapSideboardPrint(deck, oldId, newId);
+  expandedPrintId=null; // close picker after selecting
   saveDecks();renderDeckPanel();drun();
 }
 
@@ -1137,24 +1152,62 @@ function renderDeckPanel(){
     const removeFn=isMain?'setDeckQty':'setSideboardQty';
     const addFn   =isMain?'addToDeck':'addToSideboard';
     const subFn   =isMain?'removeFromDeck':'removeFromSideboard';
-    return`<div class="dk-entry">
-      ${c.img_s?`<img class="dk-thumb" src="${h(c.img_s)}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dk-thumb-ph">✦</div>`}
-      <div class="dk-name">
-        <div class="cn" style="font-size:.65rem">${h(c.name)}</div>
-        <div class="cv" style="font-size:.57rem">${c.version?h(c.version):'&nbsp;'}</div>
-        <div style="display:flex;align-items:center;gap:3px;margin-top:2px">
-          ${c.ink?inkIcon(c.ink,9):''}
-          <span class="rb ${RC[rar]||'rC'}" style="font-size:.5rem;padding:0 3px">${RA[rar]||'?'}</span>
-          ${c.cost!=null?`<span style="font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim)">${c.cost}◆</span>`:''}
+    const isExpanded=expandedPrintId===id;
+
+    // Fetch prints for this card when the picker is open
+    let printPickerHtml='';
+    if(isExpanded){
+      const printsRes=db.exec(
+        `SELECT id,set_code,set_name,rarity,cnum,img_s FROM cards
+         WHERE name=? AND COALESCE(version,'')=COALESCE(?,'')
+         ORDER BY CAST(set_code AS INTEGER) ASC`,
+        [c.name, c.version||null]
+      );
+      const prints=[];
+      if(printsRes[0]){const{columns,values}=printsRes[0];values.forEach(r=>{const o={};columns.forEach((col,i)=>o[col]=r[i]);prints.push(o)})}
+      printPickerHtml=`<div class="dk-print-picker">
+        <div class="dk-print-picker-lbl">Select printing:</div>
+        <div class="dk-print-list">
+          ${prints.map(p=>{
+            const prar=p.rarity||'Common';
+            const isActive=p.id===id;
+            return`<div class="dk-print-row${isActive?' active-print':''}" onclick="setDeckPrint('${id}','${p.id}',${isMain})">
+              ${p.img_s?`<img class="dk-print-thumb" src="${h(p.img_s)}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dk-print-thumb">✦</div>`}
+              <div class="dk-print-info">
+                <div class="dk-print-set">${h(p.set_name||p.set_code)}</div>
+                <div class="dk-print-meta">#${h(p.cnum||'?')}</div>
+              </div>
+              <span class="rb ${RC[prar]||'rC'}" style="font-size:.48rem;padding:0 3px">${RA[prar]||'?'}</span>
+              ${isActive?`<span class="dk-print-active">✓</span>`:''}
+            </div>`;
+          }).join('')}
         </div>
+      </div>`;
+    }
+
+    return`<div class="dk-entry-wrap">
+      <div class="dk-entry">
+        ${c.img_s?`<img class="dk-thumb" src="${h(c.img_s)}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dk-thumb-ph">✦</div>`}
+        <div class="dk-name">
+          <div class="cn" style="font-size:.65rem">${h(c.name)}</div>
+          <div class="cv" style="font-size:.57rem">${c.version?h(c.version):'&nbsp;'}</div>
+          <div style="display:flex;align-items:center;gap:3px;margin-top:2px">
+            ${c.ink?inkIcon(c.ink,9):''}
+            <span class="rb ${RC[rar]||'rC'}" style="font-size:.5rem;padding:0 3px">${RA[rar]||'?'}</span>
+            ${c.cost!=null?`<span style="font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim)">${c.cost}◆</span>`:''}
+            <span class="dk-set-badge" title="${h(c.set_name||c.set_code||'')}">${h(c.set_code||'')}</span>
+          </div>
+        </div>
+        <button class="foil-btn${e.foil?' on':''}" onclick="${foilFn}('${id}')" title="${e.foil?'Foil — click to remove':'Non-foil — click to mark as foil'}">${e.foil?'✦ Foil':'Foil'}</button>
+        <button class="dk-print-btn${isExpanded?' on':''}" onclick="togglePrintPicker('${id}')" title="Change printing">◈</button>
+        <div class="dk-qty">
+          <div class="qty-btn" onclick="${subFn}('${id}')">−</div>
+          <span class="qty-num">${e.qty}</span>
+          <div class="qty-btn" onclick="${addFn}('${id}')">+</div>
+        </div>
+        <button class="dk-remove" onclick="${removeFn}('${id}',0)" title="Remove">✕</button>
       </div>
-      <button class="foil-btn${e.foil?' on':''}" onclick="${foilFn}('${id}')" title="${e.foil?'Foil — click to remove':'Non-foil — click to mark as foil'}">${e.foil?'✦ Foil':'Foil'}</button>
-      <div class="dk-qty">
-        <div class="qty-btn" onclick="${subFn}('${id}')">−</div>
-        <span class="qty-num">${e.qty}</span>
-        <div class="qty-btn" onclick="${addFn}('${id}')">+</div>
-      </div>
-      <button class="dk-remove" onclick="${removeFn}('${id}',0)" title="Remove">✕</button>
+      ${printPickerHtml}
     </div>`;
   }
 

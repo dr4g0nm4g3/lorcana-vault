@@ -258,8 +258,28 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
 .bk-bar-track{flex:1;height:6px;background:var(--s3);border-radius:3px;overflow:hidden}
 .bk-bar-fill{height:100%;border-radius:3px;transition:width .3s ease}
 .bk-count{font-family:'DM Mono',monospace;font-size:.58rem;color:var(--dim);width:18px;text-align:right;flex-shrink:0}
-.dk-entry{display:flex;align-items:center;gap:.6rem;padding:.42rem .5rem;border-radius:var(--r);border:1px solid transparent;transition:border-color .12s,background .12s;margin-bottom:3px}
+.dk-entry{display:flex;align-items:center;gap:.6rem;padding:.42rem .5rem;border-radius:var(--r);border:1px solid transparent;transition:border-color .12s,background .12s;margin-bottom:0}
 .dk-entry:hover{background:var(--s2);border-color:var(--bdr)}
+/* wrapper holds entry row + collapsible print picker */
+.dk-entry-wrap{margin-bottom:3px;border-radius:var(--r);overflow:hidden}
+/* set code badge inside entry */
+.dk-set-badge{font-family:'DM Mono',monospace;font-size:.48rem;color:var(--dim);background:var(--s3);border-radius:3px;padding:0 3px;letter-spacing:.04em;flex-shrink:0;max-width:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* print picker toggle button */
+.dk-print-btn{background:none;border:1px solid var(--bdr);border-radius:4px;color:var(--dim);cursor:pointer;font-size:.72rem;width:20px;height:20px;display:flex;align-items:center;justify-content:center;transition:all .13s;flex-shrink:0;padding:0}
+.dk-print-btn:hover{border-color:var(--bdrb);color:var(--al)}
+.dk-print-btn.on{background:var(--ad);border-color:var(--amber);color:var(--al)}
+/* inline print picker */
+.dk-print-picker{background:var(--s1);border-top:1px solid var(--bdr);padding:.4rem .5rem .5rem}
+.dk-print-picker-lbl{font-family:'Cinzel',serif;font-size:.52rem;letter-spacing:.1em;color:var(--dim);text-transform:uppercase;margin-bottom:.35rem}
+.dk-print-list{display:flex;flex-direction:column;gap:3px}
+.dk-print-row{display:flex;align-items:center;gap:.5rem;padding:.3rem .4rem;border-radius:5px;border:1px solid var(--bdr);background:var(--s2);cursor:pointer;transition:border-color .12s}
+.dk-print-row:hover{border-color:var(--bdrb)}
+.dk-print-row.active-print{border-color:var(--amber);background:rgba(200,150,62,.07)}
+.dk-print-thumb{width:26px;height:26px;border-radius:3px;object-fit:cover;flex-shrink:0;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:.55rem}
+.dk-print-info{flex:1;min-width:0}
+.dk-print-set{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dk-print-meta{font-family:'DM Mono',monospace;font-size:.54rem;color:var(--dim)}
+.dk-print-active{color:var(--al);font-size:.65rem;flex-shrink:0}
 .dk-thumb{width:32px;height:32px;border-radius:3px;object-fit:cover;flex-shrink:0;background:var(--s3)}
 .dk-thumb-ph{width:32px;height:32px;border-radius:3px;flex-shrink:0;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:.7rem}
 .dk-name{flex:1;min-width:0}
@@ -1040,6 +1060,45 @@ function parseDeckImportText(text) {
   return directives;
 }
 
+// ── Print swapping ────────────────────────────────────────────────────────────
+
+/**
+ * Swap a card in deck.cards to a different printing of the same card.
+ * Removes oldId and inserts newId with qty/foil preserved.
+ * If newId already exists in the deck the quantities are merged.
+ * No-op when oldId === newId or oldId is not in the deck.
+ */
+function swapCardPrint(deck, oldId, newId) {
+  if (oldId === newId) return;
+  const e = cardEntry(deck, oldId);
+  if (!e) return;
+  const existing = cardEntry(deck, newId);
+  if (existing) {
+    deck.cards[newId] = { qty: existing.qty + e.qty, foil: existing.foil || e.foil };
+  } else {
+    deck.cards[newId] = { qty: e.qty, foil: e.foil };
+  }
+  delete deck.cards[oldId];
+}
+
+/**
+ * Swap a card in deck.sideboard to a different printing of the same card.
+ * Same merge logic as swapCardPrint.
+ */
+function swapSideboardPrint(deck, oldId, newId) {
+  if (oldId === newId) return;
+  if (!deck.sideboard) deck.sideboard = {};
+  const e = sbEntry(deck, oldId);
+  if (!e) return;
+  const existing = sbEntry(deck, newId);
+  if (existing) {
+    deck.sideboard[newId] = { qty: existing.qty + e.qty, foil: existing.foil || e.foil };
+  } else {
+    deck.sideboard[newId] = { qty: e.qty, foil: e.foil };
+  }
+  delete deck.sideboard[oldId];
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 return {
@@ -1057,6 +1116,8 @@ return {
   addCardToDeck, removeCardFromDeck, setCardQty, toggleCardFoil,
   // Sideboard mutations
   addCardToSideboard, removeCardFromSideboard, setSideboardCardQty, toggleSideboardFoil,
+  // Print swapping
+  swapCardPrint, swapSideboardPrint,
   // Statistics
   deckTotalCards, sideboardTotalCards, deckUniqueCards, deckAvgCost, deckInkCounts,
   // Export / import
@@ -1073,6 +1134,7 @@ let page = 1, dpage = 1;
 let dDeckFilter = null; // null | 'deck' | 'sideboard'
 let deckListSort  = 'cost-asc'; // 'cost-asc' | 'cost-desc' | 'name-asc' | 'name-desc'
 let deckListGroup = 'none';     // 'none' | 'rarity' | 'cost' | 'type' | 'ink' | 'set'
+let expandedPrintId = null;     // card id whose print picker is open, or null
 const PG = 48;
 let view = 'g', dview = 'g';
 let collOnly = false;
@@ -1883,6 +1945,10 @@ function setDeckListGroup(val){
   document.querySelectorAll('.dl-group-btn').forEach(b=>b.classList.toggle('on',b.dataset.group===val));
   renderDeckPanel();
 }
+function togglePrintPicker(id){
+  expandedPrintId = expandedPrintId===id ? null : id;
+  renderDeckPanel();
+}
 
 function toggleDeckStats(btn){
   const body=document.getElementById('deckStatsBody');
@@ -2004,6 +2070,16 @@ function setDeckFoil(cardId){
   const deck=getCurDeck();if(!deck)return;
   const e=cardEntry(deck,cardId);if(!e)return;
   deck.cards[cardId]={qty:e.qty,foil:!e.foil};
+  saveDecks();renderDeckPanel();drun();
+}
+
+// Swap a card entry to a different printing of the same card.
+// Delegates to the pure swapCardPrint / swapSideboardPrint functions in lorcana.js.
+function setDeckPrint(oldId, newId, isMain){
+  const deck=getCurDeck();if(!deck)return;
+  if(isMain) swapCardPrint(deck, oldId, newId);
+  else swapSideboardPrint(deck, oldId, newId);
+  expandedPrintId=null; // close picker after selecting
   saveDecks();renderDeckPanel();drun();
 }
 
@@ -2204,24 +2280,62 @@ function renderDeckPanel(){
     const removeFn=isMain?'setDeckQty':'setSideboardQty';
     const addFn   =isMain?'addToDeck':'addToSideboard';
     const subFn   =isMain?'removeFromDeck':'removeFromSideboard';
-    return`<div class="dk-entry">
-      ${c.img_s?`<img class="dk-thumb" src="${h(c.img_s)}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dk-thumb-ph">✦</div>`}
-      <div class="dk-name">
-        <div class="cn" style="font-size:.65rem">${h(c.name)}</div>
-        <div class="cv" style="font-size:.57rem">${c.version?h(c.version):'&nbsp;'}</div>
-        <div style="display:flex;align-items:center;gap:3px;margin-top:2px">
-          ${c.ink?inkIcon(c.ink,9):''}
-          <span class="rb ${RC[rar]||'rC'}" style="font-size:.5rem;padding:0 3px">${RA[rar]||'?'}</span>
-          ${c.cost!=null?`<span style="font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim)">${c.cost}◆</span>`:''}
+    const isExpanded=expandedPrintId===id;
+
+    // Fetch prints for this card when the picker is open
+    let printPickerHtml='';
+    if(isExpanded){
+      const printsRes=db.exec(
+        `SELECT id,set_code,set_name,rarity,cnum,img_s FROM cards
+         WHERE name=? AND COALESCE(version,'')=COALESCE(?,'')
+         ORDER BY CAST(set_code AS INTEGER) ASC`,
+        [c.name, c.version||null]
+      );
+      const prints=[];
+      if(printsRes[0]){const{columns,values}=printsRes[0];values.forEach(r=>{const o={};columns.forEach((col,i)=>o[col]=r[i]);prints.push(o)})}
+      printPickerHtml=`<div class="dk-print-picker">
+        <div class="dk-print-picker-lbl">Select printing:</div>
+        <div class="dk-print-list">
+          ${prints.map(p=>{
+            const prar=p.rarity||'Common';
+            const isActive=p.id===id;
+            return`<div class="dk-print-row${isActive?' active-print':''}" onclick="setDeckPrint('${id}','${p.id}',${isMain})">
+              ${p.img_s?`<img class="dk-print-thumb" src="${h(p.img_s)}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dk-print-thumb">✦</div>`}
+              <div class="dk-print-info">
+                <div class="dk-print-set">${h(p.set_name||p.set_code)}</div>
+                <div class="dk-print-meta">#${h(p.cnum||'?')}</div>
+              </div>
+              <span class="rb ${RC[prar]||'rC'}" style="font-size:.48rem;padding:0 3px">${RA[prar]||'?'}</span>
+              ${isActive?`<span class="dk-print-active">✓</span>`:''}
+            </div>`;
+          }).join('')}
         </div>
+      </div>`;
+    }
+
+    return`<div class="dk-entry-wrap">
+      <div class="dk-entry">
+        ${c.img_s?`<img class="dk-thumb" src="${h(c.img_s)}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dk-thumb-ph">✦</div>`}
+        <div class="dk-name">
+          <div class="cn" style="font-size:.65rem">${h(c.name)}</div>
+          <div class="cv" style="font-size:.57rem">${c.version?h(c.version):'&nbsp;'}</div>
+          <div style="display:flex;align-items:center;gap:3px;margin-top:2px">
+            ${c.ink?inkIcon(c.ink,9):''}
+            <span class="rb ${RC[rar]||'rC'}" style="font-size:.5rem;padding:0 3px">${RA[rar]||'?'}</span>
+            ${c.cost!=null?`<span style="font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim)">${c.cost}◆</span>`:''}
+            <span class="dk-set-badge" title="${h(c.set_name||c.set_code||'')}">${h(c.set_code||'')}</span>
+          </div>
+        </div>
+        <button class="foil-btn${e.foil?' on':''}" onclick="${foilFn}('${id}')" title="${e.foil?'Foil — click to remove':'Non-foil — click to mark as foil'}">${e.foil?'✦ Foil':'Foil'}</button>
+        <button class="dk-print-btn${isExpanded?' on':''}" onclick="togglePrintPicker('${id}')" title="Change printing">◈</button>
+        <div class="dk-qty">
+          <div class="qty-btn" onclick="${subFn}('${id}')">−</div>
+          <span class="qty-num">${e.qty}</span>
+          <div class="qty-btn" onclick="${addFn}('${id}')">+</div>
+        </div>
+        <button class="dk-remove" onclick="${removeFn}('${id}',0)" title="Remove">✕</button>
       </div>
-      <button class="foil-btn${e.foil?' on':''}" onclick="${foilFn}('${id}')" title="${e.foil?'Foil — click to remove':'Non-foil — click to mark as foil'}">${e.foil?'✦ Foil':'Foil'}</button>
-      <div class="dk-qty">
-        <div class="qty-btn" onclick="${subFn}('${id}')">−</div>
-        <span class="qty-num">${e.qty}</span>
-        <div class="qty-btn" onclick="${addFn}('${id}')">+</div>
-      </div>
-      <button class="dk-remove" onclick="${removeFn}('${id}',0)" title="Remove">✕</button>
+      ${printPickerHtml}
     </div>`;
   }
 
