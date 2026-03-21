@@ -9,6 +9,6 @@
     "test:watch":  "node --test --watch lorcana.test.js"
   },
   "devDependencies": {
-    "sql.js": "*"
+    "sql.js": "1.10.2"
   }
 }

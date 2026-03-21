@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:  # allow manual trigger from the Actions tab
+  workflow_dispatch:
 
 jobs:
   test-and-build:
@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install dependencies (sql.js for DB integration tests)
+      - name: Install dependencies
         run: npm install
 
       - name: Run tests
@@ -41,7 +41,6 @@ jobs:
     name: Create Release
     needs: test-and-build
     runs-on: ubuntu-latest
-    # Only release on pushes to the default branch, not on PRs
     if: github.event_name == 'push'
 
     permissions:
