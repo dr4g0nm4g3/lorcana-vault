@@ -4,6 +4,9 @@
 let db = null;
 let page = 1, dpage = 1;
 let dDeckFilter = null; // null | 'deck' | 'sideboard'
+let deckListSort  = 'cost-asc'; // 'cost-asc' | 'cost-desc' | 'name-asc' | 'name-desc'
+let deckListGroup = 'none';     // 'none' | 'rarity' | 'cost' | 'type' | 'ink' | 'set'
+let expandedPrintId = null;     // card id whose print picker is open, or null
 const PG = 48;
 let view = 'g', dview = 'g';
 let collOnly = false;
@@ -417,24 +420,47 @@ function drun(){
   const deck=getCurDeck();
   renderCards(cards,'dgrid','dgbtn','dlbtn',dview,true,deck);
   renderPag(tot,dpage,p=>{dpage=p;drun();},document.getElementById('deckBuilder'));
-  document.getElementById('drc').textContent=`${tot.toLocaleString()} cards`;
+  // When filtering by In Deck / In Sideboard, show the actual total quantity
+  // from the deck object rather than the canonical card count from the DB.
+  // The DB count can be lower than the real total because card_canonical
+  // deduplicates reprints — a card in the deck may not be the canonical row.
+  let countLabel;
+  if(dDeckFilter&&deck){
+    const pool=dDeckFilter==='sideboard'?(deck.sideboard||{}):deck.cards;
+    const qty=Object.values(pool).reduce((s,v)=>s+(typeof v==='number'?v:(v?.qty||0)),0);
+    countLabel=`${qty.toLocaleString()} card${qty!==1?'s':''}`;
+  }else{
+    countLabel=`${tot.toLocaleString()} cards`;
+  }
+  document.getElementById('drc').textContent=countLabel;
 }
 
 function drunQ(f,cnt,pg){
-  const [from,fromP]=buildFrom(f.rarity);
-  const c=[],p=[];
+  const deck=getCurDeck();
+  let from, fromP;
 
-  // When a deck/sideboard filter is active, restrict to those card IDs only
+  // When a deck/sideboard filter is active we query the base `cards` table
+  // directly (not card_canonical) using the exact IDs in the deck.
+  // card_canonical deduplicates reprints by MIN(id), so a card in your deck
+  // whose ID is not the canonical one for that name/version would silently
+  // disappear from results — causing e.g. only 2 of 4 Mickey Mouse cards
+  // to appear when searching by name.
   if(dDeckFilter){
-    const deck=getCurDeck();
     const ids=deck?Object.keys(dDeckFilter==='sideboard'?(deck.sideboard||{}):deck.cards):[];
     if(!ids.length){
-      // No cards in that pool — return nothing
       if(cnt)return 0;
       return[];
     }
-    c.push(`id IN(${ids.map(()=>'?').join(',')})`);p.push(...ids);
+    // Use a derived table aliased as card_canonical so the rest of the WHERE
+    // clauses (which reference card_canonical.name etc.) work unchanged.
+    const ph=ids.map(()=>'?').join(',');
+    from=`(SELECT * FROM cards WHERE id IN(${ph})) card_canonical`;
+    fromP=[...ids];
+  } else {
+    [from,fromP]=buildFrom(f.rarity);
   }
+
+  const c=[],p=[];
 
   if(f.q){c.push(`(name LIKE ? OR version LIKE ? OR ctxt LIKE ? OR flavor LIKE ? OR classes LIKE ?)`);const s=`%${f.q}%`;p.push(s,s,s,s,s)}
   if(f.ink.size){c.push(`ink IN(${[...f.ink].map(()=>'?').join(',')})`);p.push(...f.ink)}
@@ -779,6 +805,23 @@ function getCurDeck(){return curDeckId?decks.find(d=>d.id===curDeckId):null}
 function saveDecks(){localStorage.setItem('lv_decks',JSON.stringify(decks));updDeckBadge()}
 function updDeckBadge(){const b=document.getElementById('deckCountBadge');b.textContent=decks.length?`(${decks.length})`:'';}
 
+function setDeckListSort(val){
+  deckListSort=val;
+  // Update active state on sort buttons
+  document.querySelectorAll('.dl-sort-btn').forEach(b=>b.classList.toggle('on',b.dataset.sort===val));
+  renderDeckPanel();
+}
+function setDeckListGroup(val){
+  deckListGroup=val;
+  // Update active state on group buttons
+  document.querySelectorAll('.dl-group-btn').forEach(b=>b.classList.toggle('on',b.dataset.group===val));
+  renderDeckPanel();
+}
+function togglePrintPicker(id){
+  expandedPrintId = expandedPrintId===id ? null : id;
+  renderDeckPanel();
+}
+
 function toggleDeckStats(btn){
   const body=document.getElementById('deckStatsBody');
   const arr=btn.querySelector('.stats-toggle-arr');
@@ -902,6 +945,16 @@ function setDeckFoil(cardId){
   saveDecks();renderDeckPanel();drun();
 }
 
+// Swap a card entry to a different printing of the same card.
+// Delegates to the pure swapCardPrint / swapSideboardPrint functions in lorcana.js.
+function setDeckPrint(oldId, newId, isMain){
+  const deck=getCurDeck();if(!deck)return;
+  if(isMain) swapCardPrint(deck, oldId, newId);
+  else swapSideboardPrint(deck, oldId, newId);
+  expandedPrintId=null; // close picker after selecting
+  saveDecks();renderDeckPanel();drun();
+}
+
 // ── SIDEBOARD MANAGEMENT ──
 function addToSideboard(cardId){
   const deck=getCurDeck();if(!deck)return;
@@ -943,7 +996,7 @@ function renderDeckPanel(){
   const cardData={};
   if(entries.length){
     const ids=entries.map(([id])=>`'${id}'`).join(',');
-    const res=db.exec(`SELECT id,name,version,ink,cost,rarity,img_s,types,classes FROM cards WHERE id IN(${ids})`);
+    const res=db.exec(`SELECT id,name,version,ink,cost,rarity,img_s,types,classes,set_code,set_name FROM cards WHERE id IN(${ids})`);
     if(res[0]){const{columns,values}=res[0];values.forEach(r=>{const o={};columns.forEach((c,i)=>o[c]=r[i]);cardData[o.id]=o})}
   }
 
@@ -1053,21 +1106,87 @@ function renderDeckPanel(){
     </div>`:''}
   `;
 
-  // deck list sorted by cost then name
-  const sorted=entries.sort(([ia],[ib])=>{
-    const ca=cardData[ia],cb=cardData[ib];
-    if((ca?.cost??99)<(cb?.cost??99))return -1;
-    if((ca?.cost??99)>(cb?.cost??99))return 1;
-    return(ca?.name||'').localeCompare(cb?.name||'');
-  });
+  // ── DECK LIST CONTROLS + SORT + GROUP ────────────────────────────────────
 
-  const listEl=document.getElementById('deckList');
-  if(!sorted.length){listEl.innerHTML=`<div class="deck-empty"><div style="font-size:1.5rem">✦</div><div>No cards yet.<br>Click cards on the left to add them.</div></div>`;}
-  else{
-    listEl.innerHTML=sorted.map(([id,e])=>{
-      const c=cardData[id];if(!c)return'';
-      const rar=c.rarity||'Common';
-      return`<div class="dk-entry">
+  const RARITY_DISPLAY_ORDER=['Iconic','Epic','Enchanted','Legendary','Super_rare','Rare','Uncommon','Common','Promo'];
+  const INK_ORDER=['Amber','Amethyst','Emerald','Ruby','Sapphire','Steel'];
+
+  function cardCmp(ia,ib){
+    const ca=cardData[ia],cb=cardData[ib];
+    const costA=ca?.cost??99,costB=cb?.cost??99;
+    const nameA=ca?.name||'',nameB=cb?.name||'';
+    switch(deckListSort){
+      case 'cost-asc':  return costA!==costB?costA-costB:nameA.localeCompare(nameB);
+      case 'cost-desc': return costA!==costB?costB-costA:nameA.localeCompare(nameB);
+      case 'name-asc':  return nameA.localeCompare(nameB);
+      case 'name-desc': return nameB.localeCompare(nameA);
+      default:          return costA!==costB?costA-costB:nameA.localeCompare(nameB);
+    }
+  }
+
+  function groupKey(id){
+    const c=cardData[id];
+    switch(deckListGroup){
+      case 'rarity': return c?.rarity||'Unknown';
+      case 'cost':   return c?.cost!=null?`${c.cost}\u25C6`:'No Cost';
+      case 'type':{ let types;try{types=JSON.parse(c?.types||'[]')}catch{types=[]}; return types[0]||'Unknown'; }
+      case 'ink':    return c?.ink||'Uninkable';
+      case 'set':    return c?.set_name||c?.set_code||'Unknown Set';
+      default: return null;
+    }
+  }
+
+  function groupSortOrder(key){
+    switch(deckListGroup){
+      case 'rarity': const ri=RARITY_DISPLAY_ORDER.indexOf(key); return ri>=0?ri:99;
+      case 'ink':    const ii=INK_ORDER.indexOf(key); return ii>=0?ii:99;
+      case 'cost':   return key==='No Cost'?999:parseInt(key)||0;
+      default: return 0;
+    }
+  }
+
+  function renderDkEntry(id,e,isMain){
+    const c=cardData[id];if(!c)return'';
+    const rar=c.rarity||'Common';
+    const foilFn  =isMain?'setDeckFoil':'setSideboardFoil';
+    const removeFn=isMain?'setDeckQty':'setSideboardQty';
+    const addFn   =isMain?'addToDeck':'addToSideboard';
+    const subFn   =isMain?'removeFromDeck':'removeFromSideboard';
+    const isExpanded=expandedPrintId===id;
+
+    // Fetch prints for this card when the picker is open
+    let printPickerHtml='';
+    if(isExpanded){
+      const printsRes=db.exec(
+        `SELECT id,set_code,set_name,rarity,cnum,img_s FROM cards
+         WHERE name=? AND COALESCE(version,'')=COALESCE(?,'')
+         ORDER BY CAST(set_code AS INTEGER) ASC`,
+        [c.name, c.version||null]
+      );
+      const prints=[];
+      if(printsRes[0]){const{columns,values}=printsRes[0];values.forEach(r=>{const o={};columns.forEach((col,i)=>o[col]=r[i]);prints.push(o)})}
+      printPickerHtml=`<div class="dk-print-picker">
+        <div class="dk-print-picker-lbl">Select printing:</div>
+        <div class="dk-print-list">
+          ${prints.map(p=>{
+            const prar=p.rarity||'Common';
+            const isActive=p.id===id;
+            return`<div class="dk-print-row${isActive?' active-print':''}" onclick="setDeckPrint('${id}','${p.id}',${isMain})">
+              ${p.img_s?`<img class="dk-print-thumb" src="${h(p.img_s)}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dk-print-thumb">✦</div>`}
+              <div class="dk-print-info">
+                <div class="dk-print-set">${h(p.set_name||p.set_code)}</div>
+                <div class="dk-print-meta">#${h(p.cnum||'?')}</div>
+              </div>
+              <span class="rb ${RC[prar]||'rC'}" style="font-size:.48rem;padding:0 3px">${RA[prar]||'?'}</span>
+              ${isActive?`<span class="dk-print-active">✓</span>`:''}
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }
+
+    return`<div class="dk-entry-wrap">
+      <div class="dk-entry">
         ${c.img_s?`<img class="dk-thumb" src="${h(c.img_s)}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dk-thumb-ph">✦</div>`}
         <div class="dk-name">
           <div class="cn" style="font-size:.65rem">${h(c.name)}</div>
@@ -1076,15 +1195,54 @@ function renderDeckPanel(){
             ${c.ink?inkIcon(c.ink,9):''}
             <span class="rb ${RC[rar]||'rC'}" style="font-size:.5rem;padding:0 3px">${RA[rar]||'?'}</span>
             ${c.cost!=null?`<span style="font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim)">${c.cost}◆</span>`:''}
+            <span class="dk-set-badge" title="${h(c.set_name||c.set_code||'')}">${h(c.set_code||'')}</span>
           </div>
         </div>
-        <button class="foil-btn${e.foil?' on':''}" onclick="setDeckFoil('${id}')" title="${e.foil?'Foil — click to remove':'Non-foil — click to mark as foil'}">${e.foil?'✦ Foil':'Foil'}</button>
+        <button class="foil-btn${e.foil?' on':''}" onclick="${foilFn}('${id}')" title="${e.foil?'Foil — click to remove':'Non-foil — click to mark as foil'}">${e.foil?'✦ Foil':'Foil'}</button>
+        <button class="dk-print-btn${isExpanded?' on':''}" onclick="togglePrintPicker('${id}')" title="Change printing">◈</button>
         <div class="dk-qty">
-          <div class="qty-btn" onclick="removeFromDeck('${id}')">−</div>
+          <div class="qty-btn" onclick="${subFn}('${id}')">−</div>
           <span class="qty-num">${e.qty}</span>
-          <div class="qty-btn" onclick="addToDeck('${id}')">+</div>
+          <div class="qty-btn" onclick="${addFn}('${id}')">+</div>
         </div>
-        <button class="dk-remove" onclick="setDeckQty('${id}',0)" title="Remove">✕</button>
+        <button class="dk-remove" onclick="${removeFn}('${id}',0)" title="Remove">✕</button>
+      </div>
+      ${printPickerHtml}
+    </div>`;
+  }
+
+  const sorted=entries.sort(([ia],[ib])=>cardCmp(ia,ib));
+
+  const sortBtns=[
+    {val:'cost-asc',label:'Cost ↑'},{val:'cost-desc',label:'Cost ↓'},
+    {val:'name-asc',label:'Name ↑'},{val:'name-desc',label:'Name ↓'},
+  ].map(({val,label})=>`<button class="dl-sort-btn${deckListSort===val?' on':''}" data-sort="${val}" onclick="setDeckListSort('${val}')">${label}</button>`).join('');
+
+  const groupBtns=[
+    {val:'none',label:'None'},{val:'cost',label:'Cost'},{val:'ink',label:'Ink'},
+    {val:'rarity',label:'Rarity'},{val:'type',label:'Type'},{val:'set',label:'Set'},
+  ].map(({val,label})=>`<button class="dl-group-btn${deckListGroup===val?' on':''}" data-group="${val}" onclick="setDeckListGroup('${val}')">${label}</button>`).join('');
+
+  const controls=`<div class="dl-controls">
+    <div class="dl-controls-row"><span class="dl-ctrl-label">Sort</span><div class="dl-btn-group">${sortBtns}</div></div>
+    <div class="dl-controls-row"><span class="dl-ctrl-label">Group</span><div class="dl-btn-group">${groupBtns}</div></div>
+  </div>`;
+
+  const listEl=document.getElementById('deckList');
+  if(!sorted.length){
+    listEl.innerHTML=controls+`<div class="deck-empty"><div style="font-size:1.5rem">✦</div><div>No cards yet.<br>Click cards on the left to add them.</div></div>`;
+  } else if(deckListGroup==='none'){
+    listEl.innerHTML=controls+sorted.map(([id,e])=>renderDkEntry(id,e,true)).join('');
+  } else {
+    const groupMap=new Map();
+    sorted.forEach(([id,e])=>{const key=groupKey(id)||'Unknown';if(!groupMap.has(key))groupMap.set(key,[]);groupMap.get(key).push([id,e])});
+    const groupKeys=[...groupMap.keys()].sort((a,b)=>{const oa=groupSortOrder(a),ob=groupSortOrder(b);return oa!==ob?oa-ob:a.localeCompare(b)});
+    listEl.innerHTML=controls+groupKeys.map(key=>{
+      const items=groupMap.get(key);
+      const groupQty=items.reduce((s,[,e])=>s+e.qty,0);
+      return`<div class="dl-group-section">
+        <div class="dl-group-header"><span class="dl-group-name">${h(key)}</span><span class="dl-group-count">${groupQty}</span></div>
+        ${items.map(([id,e])=>renderDkEntry(id,e,true)).join('')}
       </div>`;
     }).join('');
   }
@@ -1098,15 +1256,11 @@ function renderDeckPanel(){
   // Fetch card data for sideboard entries
   const sbData={};
   const sbIds=sbEntries.map(([id])=>`'${id}'`).join(',');
-  const sbRes=db.exec(`SELECT id,name,version,ink,cost,rarity,img_s FROM cards WHERE id IN(${sbIds})`);
-  if(sbRes[0]){const{columns,values}=sbRes[0];values.forEach(r=>{const o={};columns.forEach((c,i)=>o[c]=r[i]);sbData[o.id]=o})}
+  // merge sbData into cardData so renderDkEntry works for both pools
+  const sbRes=db.exec(`SELECT id,name,version,ink,cost,rarity,img_s,types,set_code,set_name FROM cards WHERE id IN(${sbIds})`);
+  if(sbRes[0]){const{columns,values}=sbRes[0];values.forEach(r=>{const o={};columns.forEach((c,i)=>o[c]=r[i]);sbData[o.id]=o;cardData[o.id]=o;})}
 
-  const sbSorted=sbEntries.sort(([ia],[ib])=>{
-    const ca=sbData[ia],cb=sbData[ib];
-    if((ca?.cost??99)<(cb?.cost??99))return -1;
-    if((ca?.cost??99)>(cb?.cost??99))return 1;
-    return(ca?.name||'').localeCompare(cb?.name||'');
-  });
+  const sbSorted=sbEntries.sort(([ia],[ib])=>cardCmp(ia,ib));
   const sbTotal=sbEntries.reduce((s,[,e])=>s+e.qty,0);
 
   sbEl.innerHTML=`<div class="sb-section">
@@ -1114,29 +1268,7 @@ function renderDeckPanel(){
       <span>Sideboard</span>
       <span class="sb-count">${sbTotal} card${sbTotal!==1?'s':''}</span>
     </div>
-    <div class="sb-list">${sbSorted.map(([id,e])=>{
-      const c=sbData[id];if(!c)return'';
-      const rar=c.rarity||'Common';
-      return`<div class="dk-entry">
-        ${c.img_s?`<img class="dk-thumb" src="${h(c.img_s)}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dk-thumb-ph">✦</div>`}
-        <div class="dk-name">
-          <div class="cn" style="font-size:.65rem">${h(c.name)}</div>
-          <div class="cv" style="font-size:.57rem">${c.version?h(c.version):'&nbsp;'}</div>
-          <div style="display:flex;align-items:center;gap:3px;margin-top:2px">
-            ${c.ink?inkIcon(c.ink,9):''}
-            <span class="rb ${RC[rar]||'rC'}" style="font-size:.5rem;padding:0 3px">${RA[rar]||'?'}</span>
-            ${c.cost!=null?`<span style="font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim)">${c.cost}◆</span>`:''}
-          </div>
-        </div>
-        <button class="foil-btn${e.foil?' on':''}" onclick="setSideboardFoil('${id}')" title="${e.foil?'Foil':'Non-foil'}">${e.foil?'✦ Foil':'Foil'}</button>
-        <div class="dk-qty">
-          <div class="qty-btn" onclick="removeFromSideboard('${id}')">−</div>
-          <span class="qty-num">${e.qty}</span>
-          <div class="qty-btn" onclick="addToSideboard('${id}')">+</div>
-        </div>
-        <button class="dk-remove" onclick="setSideboardQty('${id}',0)" title="Remove">✕</button>
-      </div>`;
-    }).join('')}</div>
+    <div class="sb-list">${sbSorted.map(([id,e])=>renderDkEntry(id,e,false)).join('')}</div>
   </div>`;
 }
 

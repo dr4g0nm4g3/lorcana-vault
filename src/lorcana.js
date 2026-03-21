@@ -296,6 +296,45 @@ function parseDeckImportText(text) {
   return directives;
 }
 
+// ── Print swapping ────────────────────────────────────────────────────────────
+
+/**
+ * Swap a card in deck.cards to a different printing of the same card.
+ * Removes oldId and inserts newId with qty/foil preserved.
+ * If newId already exists in the deck the quantities are merged.
+ * No-op when oldId === newId or oldId is not in the deck.
+ */
+function swapCardPrint(deck, oldId, newId) {
+  if (oldId === newId) return;
+  const e = cardEntry(deck, oldId);
+  if (!e) return;
+  const existing = cardEntry(deck, newId);
+  if (existing) {
+    deck.cards[newId] = { qty: existing.qty + e.qty, foil: existing.foil || e.foil };
+  } else {
+    deck.cards[newId] = { qty: e.qty, foil: e.foil };
+  }
+  delete deck.cards[oldId];
+}
+
+/**
+ * Swap a card in deck.sideboard to a different printing of the same card.
+ * Same merge logic as swapCardPrint.
+ */
+function swapSideboardPrint(deck, oldId, newId) {
+  if (oldId === newId) return;
+  if (!deck.sideboard) deck.sideboard = {};
+  const e = sbEntry(deck, oldId);
+  if (!e) return;
+  const existing = sbEntry(deck, newId);
+  if (existing) {
+    deck.sideboard[newId] = { qty: existing.qty + e.qty, foil: existing.foil || e.foil };
+  } else {
+    deck.sideboard[newId] = { qty: e.qty, foil: e.foil };
+  }
+  delete deck.sideboard[oldId];
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 return {
@@ -313,6 +352,8 @@ return {
   addCardToDeck, removeCardFromDeck, setCardQty, toggleCardFoil,
   // Sideboard mutations
   addCardToSideboard, removeCardFromSideboard, setSideboardCardQty, toggleSideboardFoil,
+  // Print swapping
+  swapCardPrint, swapSideboardPrint,
   // Statistics
   deckTotalCards, sideboardTotalCards, deckUniqueCards, deckAvgCost, deckInkCounts,
   // Export / import
