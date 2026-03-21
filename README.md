@@ -3,15 +3,21 @@
 A Disney Lorcana TCG card browser and deck builder that runs entirely in the browser,
 fetching live card data from the [Lorcast API](https://api.lorcast.com).
 
-Coded entirely by Claude ai
-
 ---
 
 ## Quick start
 
 ```bash
+# One-time setup — installs sql.js for local DB integration tests
+npm install
+
 # Build the app
 node build.js
+
+# Open in your browser — no server needed
+open dist/lorcana-browser.html        # macOS
+xdg-open dist/lorcana-browser.html   # Linux
+start dist/lorcana-browser.html       # Windows
 ```
 
 > **Note:** The app fetches card data from the Lorcast API on first load.
@@ -62,7 +68,8 @@ lorcana-vault/
 ### Making a change to business logic
 
 1. Edit `src/lorcana.js`
-2. Run `node --test lorcana.test.js` to verify nothing broke
+2. Run `npm install              # one-time setup (installs sql.js)
+node --test lorcana.test.js` to verify nothing broke
 3. Run `node build.js` to produce the new `dist/lorcana-browser.html`
 
 ### Making a change to the UI / rendering
@@ -81,9 +88,10 @@ node build.js --watch
 
 ## Testing
 
-Tests use Node's built-in test runner — no npm install required:
+Run `npm install` once, then tests work identically locally and on CI:
 
 ```bash
+npm install              # one-time setup (installs sql.js)
 node --test lorcana.test.js
 ```
 
@@ -109,6 +117,7 @@ The test suite covers 14 areas across 142 tests:
 
 ```bash
 npm install          # installs sql.js devDependency
+npm install              # one-time setup (installs sql.js)
 node --test lorcana.test.js   # all 142 tests including DB tests
 ```
 
