@@ -1360,7 +1360,7 @@ describe('DB integration', () => {
       const db = await makeFilterDb();
       if (!db) return t.skip('sql.js not installed');
       const ids = ['filt_amber1', 'filt_sap1'];
-      const rows = queryRows(db, `SELECT id FROM card_canonical WHERE id IN (${ids.map(()=>'?').join(',')})`, ids);
+      const rows = queryRows(db, `SELECT id FROM (SELECT * FROM cards WHERE id IN (${ids.map(()=>'?').join(',')}) ) card_canonical`, ids);
       const returnedIds = new Set(rows.map(r => r.id));
       assert.ok(returnedIds.has('filt_amber1'));
       assert.ok(returnedIds.has('filt_sap1'));
@@ -1373,6 +1373,156 @@ describe('DB integration', () => {
       if (!db) return t.skip('sql.js not installed');
       const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE 1=0`);
       assert.equal(count, 0);
+    });
+
+    // ── Regression tests for the non-canonical ID bug ────────────────────
+    //
+    // The bug: card_canonical uses MIN(id) to pick one row per (name,version).
+    // If a deck holds a reprint whose ID is NOT the MIN for that card, it was
+    // silently dropped when drunQ queried card_canonical with id IN (deck ids).
+    //
+    // The fix: when In Deck/Sideboard is active, drunQ builds a derived table
+    // from the exact deck IDs — bypassing card_canonical deduplication entirely.
+    // These tests verify that fix by placing the non-canonical reprint in the
+    // "deck" and asserting it is still found by name, ink, and cost filters.
+
+    test('non-canonical reprint in deck is found by name search (regression)', async (t) => {
+      const db = await makeDb();
+      if (!db) return t.skip('sql.js not installed');
+
+      // Insert two prints of the same card. 'zzz_later' sorts AFTER 'aaa_canon',
+      // so card_canonical will select 'aaa_canon' as the canonical row.
+      insertCard(db, { id: 'aaa_canon',  name: 'Mickey Mouse', version: 'Trumpeter',        ink: 'Amber',   cost: 3, set_code: '1' });
+      insertCard(db, { id: 'zzz_reprint',name: 'Mickey Mouse', version: 'Trumpeter',        ink: 'Amber',   cost: 3, set_code: '5' });
+
+      // Confirm card_canonical chose the MIN id (aaa_canon), not zzz_reprint
+      const canonical = queryRows(db, `SELECT id FROM card_canonical WHERE name='Mickey Mouse'`);
+      assert.equal(canonical.length, 1);
+      assert.equal(canonical[0].id, 'aaa_canon');
+
+      // The deck holds the NON-canonical reprint
+      const deckIds = ['zzz_reprint'];
+      const ph = deckIds.map(() => '?').join(',');
+
+      // Old broken query — uses card_canonical, drops non-canonical id
+      const brokenRows = queryRows(db,
+        `SELECT id FROM card_canonical WHERE id IN (${ph}) AND name LIKE '%Mickey Mouse%'`,
+        deckIds
+      );
+      assert.equal(brokenRows.length, 0, 'should confirm old query fails to find non-canonical id');
+
+      // Fixed query — derived table from exact deck ids bypasses deduplication
+      const fixedRows = queryRows(db,
+        `SELECT id, name FROM (SELECT * FROM cards WHERE id IN (${ph})) card_canonical WHERE name LIKE '%Mickey Mouse%'`,
+        deckIds
+      );
+      assert.equal(fixedRows.length, 1);
+      assert.equal(fixedRows[0].id, 'zzz_reprint');
+    });
+
+    test('multiple non-canonical reprints all found (4 Mickey Mouse versions)', async (t) => {
+      const db = await makeDb();
+      if (!db) return t.skip('sql.js not installed');
+
+      // Four prints of Mickey Mouse in different versions — each is the only
+      // print of its version so all appear in card_canonical individually.
+      // Use IDs where some sort AFTER a hypothetical earlier print from another set.
+      insertCard(db, { id: 'mm_s1_v1', name: 'Mickey Mouse', version: 'Brave Little Tailor', ink: 'Amber',     cost: 2, set_code: '1' });
+      insertCard(db, { id: 'mm_s3_v1', name: 'Mickey Mouse', version: 'Brave Little Tailor', ink: 'Amber',     cost: 2, set_code: '3' }); // reprint, non-canonical
+      insertCard(db, { id: 'mm_s1_v2', name: 'Mickey Mouse', version: 'Trumpeter',            ink: 'Amber',     cost: 3, set_code: '1' });
+      insertCard(db, { id: 'mm_s5_v2', name: 'Mickey Mouse', version: 'Trumpeter',            ink: 'Amber',     cost: 3, set_code: '5' }); // reprint, non-canonical
+      insertCard(db, { id: 'mm_s1_v3', name: 'Mickey Mouse', version: 'Detective',             ink: 'Sapphire', cost: 4, set_code: '1' });
+      insertCard(db, { id: 'mm_s1_v4', name: 'Mickey Mouse', version: 'Inspirational Warrior', ink: 'Steel',    cost: 5, set_code: '1' });
+
+      // Deck holds: one canonical + three non-canonical reprints
+      const deckIds = ['mm_s3_v1', 'mm_s5_v2', 'mm_s1_v3', 'mm_s1_v4'];
+      const ph = deckIds.map(() => '?').join(',');
+      const from = `(SELECT * FROM cards WHERE id IN (${ph})) card_canonical`;
+
+      // All four should be found by name
+      const byName = queryRows(db,
+        `SELECT id FROM ${from} WHERE name LIKE '%Mickey Mouse%'`,
+        deckIds
+      );
+      assert.equal(byName.length, 4, 'all 4 deck cards should be found by name search');
+
+      // Ink filter on derived table should work
+      const byInk = queryRows(db,
+        `SELECT id FROM ${from} WHERE ink='Amber'`,
+        deckIds
+      );
+      assert.equal(byInk.length, 2); // mm_s3_v1 and mm_s5_v2
+
+      // Cost filter
+      const byCost = queryRows(db,
+        `SELECT id FROM ${from} WHERE cost >= 4`,
+        deckIds
+      );
+      assert.equal(byCost.length, 2); // mm_s1_v3 (cost 4) and mm_s1_v4 (cost 5)
+    });
+
+    test('non-canonical id not visible in card_canonical but visible via derived table', async (t) => {
+      const db = await makeDb();
+      if (!db) return t.skip('sql.js not installed');
+
+      // Insert two prints — 'a_first' wins MIN(id), 'z_second' is the non-canonical reprint
+      insertCard(db, { id: 'a_first',  name: 'Elsa', version: 'Spirit of Winter', set_code: '1', ink: 'Sapphire', cost: 6 });
+      insertCard(db, { id: 'z_second', name: 'Elsa', version: 'Spirit of Winter', set_code: '2', ink: 'Sapphire', cost: 6 });
+
+      // card_canonical should have only a_first
+      const canonRows = queryRows(db, `SELECT id FROM card_canonical WHERE name='Elsa'`);
+      assert.equal(canonRows.length, 1);
+      assert.equal(canonRows[0].id, 'a_first');
+
+      // Querying card_canonical for z_second directly returns nothing
+      const missedByCanon = queryCount(db,
+        `SELECT COUNT(*) FROM card_canonical WHERE id='z_second'`
+      );
+      assert.equal(missedByCanon, 0, 'z_second should be invisible to card_canonical');
+
+      // Derived table approach finds it
+      const foundByFix = queryCount(db,
+        `SELECT COUNT(*) FROM (SELECT * FROM cards WHERE id IN ('z_second')) card_canonical WHERE id='z_second'`
+      );
+      assert.equal(foundByFix, 1, 'derived table approach should find z_second');
+    });
+
+    test('combined name + ink filter works on non-canonical deck cards', async (t) => {
+      const db = await makeDb();
+      if (!db) return t.skip('sql.js not installed');
+
+      insertCard(db, { id: 'canon_goofy',  name: 'Goofy', version: 'Super Goof', ink: 'Steel',  cost: 5, set_code: '1' });
+      insertCard(db, { id: 'reprt_goofy',  name: 'Goofy', version: 'Super Goof', ink: 'Steel',  cost: 5, set_code: '4' });
+      insertCard(db, { id: 'reprt_stitch', name: 'Stitch', version: 'Carefree Surfer', ink: 'Amber', cost: 2, set_code: '4' });
+
+      // Deck holds the non-canonical Goofy reprint and a Stitch
+      const deckIds = ['reprt_goofy', 'reprt_stitch'];
+      const ph = deckIds.map(() => '?').join(',');
+      const from = `(SELECT * FROM cards WHERE id IN (${ph})) card_canonical`;
+
+      // Name search: should find non-canonical Goofy
+      const goofyRows = queryRows(db,
+        `SELECT id FROM ${from} WHERE name LIKE '%Goofy%'`,
+        deckIds
+      );
+      assert.equal(goofyRows.length, 1);
+      assert.equal(goofyRows[0].id, 'reprt_goofy');
+
+      // Combined name + ink: Steel Goofy
+      const steelGoofy = queryRows(db,
+        `SELECT id FROM ${from} WHERE name LIKE '%Goofy%' AND ink='Steel'`,
+        deckIds
+      );
+      assert.equal(steelGoofy.length, 1);
+      assert.equal(steelGoofy[0].id, 'reprt_goofy');
+
+      // Ink only: Amber should return only Stitch, not the Steel Goofy
+      const amberOnly = queryRows(db,
+        `SELECT id FROM ${from} WHERE ink='Amber'`,
+        deckIds
+      );
+      assert.equal(amberOnly.length, 1);
+      assert.equal(amberOnly[0].id, 'reprt_stitch');
     });
   });
 });
