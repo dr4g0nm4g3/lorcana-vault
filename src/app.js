@@ -7,6 +7,8 @@ let dDeckFilter = null; // null | 'deck' | 'sideboard'
 let deckListSort  = 'cost-asc'; // 'cost-asc' | 'cost-desc' | 'name-asc' | 'name-desc'
 let deckListGroup = 'none';     // 'none' | 'rarity' | 'cost' | 'type' | 'ink' | 'set'
 let expandedPrintId = null;     // card id whose print picker is open, or null
+let multiSelectMode = false;    // bulk-add mode in deck picker
+let multiSelect = new Set();    // selected card ids when multiSelectMode is on
 const PG = 48;
 let view = 'g', dview = 'g';
 let collOnly = false;
@@ -24,9 +26,9 @@ let decks = JSON.parse(localStorage.getItem('lv_decks')||'[]');
 let curDeckId = null;  // null = "home", else deck id
 
 // Browse filters
-const F = {ink:new Set(),rarity:new Set(),type:new Set(),typeExact:new Set(),classification:new Set(),set:new Set(),keywords:new Set(),inkwell:null,cmin:0,cmax:10,lmin:null,lmax:null,smin:null,smax:null,wmin:null,wmax:null,q:''};
+const F = {ink:new Set(),rarity:new Set(),type:new Set(),typeExact:new Set(),classification:new Set(),set:new Set(),keywords:new Set(),inkwell:null,cmin:0,cmax:10,lmin:null,lmax:null,smin:null,smax:null,wmin:null,wmax:null,q:'',format:null};
 // Deck picker filters (independent)
-const DF = {ink:new Set(),rarity:new Set(),type:new Set(),typeExact:new Set(),classification:new Set(),set:new Set(),keywords:new Set(),inkwell:null,cmin:0,cmax:10,lmin:null,lmax:null,smin:null,smax:null,wmin:null,wmax:null,q:''};
+const DF = {ink:new Set(),rarity:new Set(),type:new Set(),typeExact:new Set(),classification:new Set(),set:new Set(),keywords:new Set(),inkwell:null,cmin:0,cmax:10,lmin:null,lmax:null,smin:null,smax:null,wmin:null,wmax:null,q:'',format:null};
 
 const IC = {Amber:'#f59e0b',Amethyst:'#a855f7',Emerald:'#10b981',Ruby:'#ef4444',Sapphire:'#3b82f6',Steel:'#94a3b8'};
 const RA = {Common:'C',Uncommon:'U',Rare:'R',Super_rare:'SR',Legendary:'L',Enchanted:'E',Promo:'P',Epic:'Ep',Iconic:'Ic'};
@@ -42,27 +44,28 @@ function showErr(msg){const e=document.getElementById('lerr');e.textContent=msg;
 // DB
 // ═══════════════════════════════════════════════════════════════════
 async function initDB(){
-  const SQL=await initSqlJs({locateFile:f=>`https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${f}`});
+  // Race initSqlJs against a timeout — a stalled WASM fetch otherwise hangs silently
+  const SQL=await Promise.race([
+    initSqlJs({locateFile:f=>`https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${f}`}),
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error('sql.js WASM failed to load (network timeout). Serve this file via a local web server: python -m http.server 8080')),15000)),
+  ]);
   db=new SQL.Database();
-  db.run(`CREATE TABLE IF NOT EXISTS cards(
+  db.exec(`CREATE TABLE IF NOT EXISTS cards(
     id TEXT PRIMARY KEY,name TEXT,version TEXT,layout TEXT,released_at TEXT,
     img_s TEXT,img_n TEXT,img_l TEXT,cost INTEGER,inkwell INTEGER,ink TEXT,
     types TEXT,classes TEXT,ctxt TEXT,move_cost INTEGER,str INTEGER,wil INTEGER,
     lore INTEGER,rarity TEXT,ills TEXT,cnum TEXT,flavor TEXT,set_code TEXT,set_name TEXT,
-    keywords TEXT,price_usd TEXT
-  );
-  CREATE INDEX IF NOT EXISTS in_name ON cards(name);
-  CREATE INDEX IF NOT EXISTS in_ink  ON cards(ink);
-  CREATE INDEX IF NOT EXISTS in_rar  ON cards(rarity);
-  CREATE INDEX IF NOT EXISTS in_set  ON cards(set_code);
-  CREATE INDEX IF NOT EXISTS in_cost ON cards(cost);
-  CREATE INDEX IF NOT EXISTS in_namever ON cards(name,version);
-  -- One canonical row per logical card (name+version).
-  -- Uses MIN(id) as the tiebreaker — always selects exactly one row per group
-  -- regardless of set_code format (numeric "1","2" vs alpha "P1","cp","D23" etc.)
-  -- COALESCE(version,'') and REPLACE chains normalize NULL/''/Unicode apostrophes.
-  DROP VIEW IF EXISTS card_canonical;
-  CREATE VIEW card_canonical AS
+    keywords TEXT,price_usd TEXT,legal_core TEXT
+  )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS in_name    ON cards(name)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS in_ink     ON cards(ink)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS in_rar     ON cards(rarity)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS in_set     ON cards(set_code)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS in_cost    ON cards(cost)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS in_namever ON cards(name,version)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS in_legal   ON cards(legal_core)`);
+  db.exec(`DROP VIEW IF EXISTS card_canonical`);
+  db.exec(`CREATE VIEW card_canonical AS
     SELECT c.*
     FROM cards c
     INNER JOIN (
@@ -71,7 +74,7 @@ async function initDB(){
       GROUP BY
         REPLACE(REPLACE(REPLACE(name, char(8217), char(39)), char(8216), char(39)), char(700), char(39)),
         COALESCE(version,'')
-    ) best ON c.id = best.canon_id;`);
+    ) best ON c.id = best.canon_id`);
 }
 
 async function fetchJSON(url,timeout=15000){
@@ -90,7 +93,7 @@ async function loadCards(){
   try{const d=await fetchJSON('https://api.lorcast.com/v0/sets');sets=d.results||[];if(!sets.length)throw new Error('No sets')}
   catch(e){throw new Error(`Could not load sets: ${e.message}. Serve this file via a local web server.`)}
   setBar(15,`Found ${sets.length} sets. Fetching cards…`);
-  const stmt=db.prepare(`INSERT OR REPLACE INTO cards VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const stmt=db.prepare(`INSERT OR REPLACE INTO cards VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   db.run('BEGIN');
   let total=0;
   for(let i=0;i<sets.length;i++){
@@ -101,7 +104,7 @@ async function loadCards(){
       for(const c of arr){
         const name=normStr(c.name);
         const ver=normStr(c.version?c.version.trim()||null:null);
-        stmt.run([c.id,name,ver,c.layout||null,c.released_at||null,c.image_uris?.digital?.small||null,c.image_uris?.digital?.normal||null,c.image_uris?.digital?.large||null,c.cost??null,c.inkwell?1:0,c.ink||null,JSON.stringify(c.type||[]),JSON.stringify(c.classifications||[]),c.text||null,c.move_cost??null,c.strength??null,c.willpower??null,c.lore??null,c.rarity||null,JSON.stringify(c.illustrators||[]),c.collector_number||null,c.flavor_text||null,s.code,s.name,JSON.stringify(c.keywords||[]),c.prices?.usd||null]);
+        stmt.run([c.id,name,ver,c.layout||null,c.released_at||null,c.image_uris?.digital?.small||null,c.image_uris?.digital?.normal||null,c.image_uris?.digital?.large||null,c.cost??null,c.inkwell?1:0,c.ink||null,JSON.stringify(c.type||[]),JSON.stringify(c.classifications||[]),c.text||null,c.move_cost??null,c.strength??null,c.willpower??null,c.lore??null,c.rarity||null,JSON.stringify(c.illustrators||[]),c.collector_number||null,c.flavor_text||null,s.code,s.name,JSON.stringify(c.keywords||[]),c.prices?.usd||null,c.legalities?.core||null]);
         total++;
       }
     }catch(e){console.warn(`Set ${s.code}:`,e.message)}
@@ -119,13 +122,18 @@ async function boot(){
   document.getElementById('lretry').style.display='none';
   document.getElementById('lmsg').textContent='Initializing…';setBar(0);
   try{
+    setBar(2,'Loading SQL engine (requires internet)…');
     await initDB();setBar(8,'DB ready…');
     const{sets,total}=await loadCards();
-    setBar(95,'Building interface…');
+    setBar(93,'Building set filters…');
     buildSetChips(sets);
+    setBar(94,'Building classification filters…');
     buildClassChips();
+    setBar(95,'Building action subtype filters…');
     buildActionSubChips();
+    setBar(96,'Building keyword filters…');
     buildKeywordChips();
+    setBar(97,'Rendering cards…');
     run();updColl();updDeckBadge();
     setBar(100,`Loaded ${total.toLocaleString()} cards!`);
     await new Promise(r=>setTimeout(r,300));
@@ -279,6 +287,7 @@ function switchTab(tab){
 // ═══════════════════════════════════════════════════════════════════
 function tf(k,v,btn){
   if(k==='inkwell'){if(F.inkwell===v){F.inkwell=null;btn.classList.remove('on')}else{document.querySelectorAll('#browseSide [data-iw]').forEach(b=>b.classList.remove('on'));F.inkwell=v;btn.classList.add('on')}}
+  else if(k==='format'){if(F.format===v){F.format=null;btn.classList.remove('on')}else{document.querySelectorAll('#browseSide [data-fmt]').forEach(b=>b.classList.remove('on'));F.format=v;btn.classList.add('on')}}
   else{F[k].has(v)?(F[k].delete(v),btn.classList.remove('on')):(F[k].add(v),btn.classList.add('on'))}
   page=1;run();
 }
@@ -321,7 +330,7 @@ function clrStat(stat,side){
 
 function clrAll(){
   ['ink','rarity','type','typeExact','classification','set','keywords'].forEach(k=>F[k].clear());
-  F.inkwell=null;F.cmin=0;F.cmax=10;F.q='';
+  F.inkwell=null;F.format=null;F.cmin=0;F.cmax=10;F.q='';
   document.getElementById('srch').value='';
   document.getElementById('rmin').value=0;document.getElementById('rmax').value=10;
   document.getElementById('cmn').textContent='0';document.getElementById('cmx').textContent='10+';
@@ -333,13 +342,14 @@ function clrAll(){
 // DECK FILTERS
 function dtf(k,v,btn){
   if(k==='inkwell'){if(DF.inkwell===v){DF.inkwell=null;btn.classList.remove('on')}else{document.querySelectorAll('#deckSide [data-iw]').forEach(b=>b.classList.remove('on'));DF.inkwell=v;btn.classList.add('on')}}
+  else if(k==='format'){if(DF.format===v){DF.format=null;btn.classList.remove('on')}else{document.querySelectorAll('#deckSide [data-fmt]').forEach(b=>b.classList.remove('on'));DF.format=v;btn.classList.add('on')}}
   else{DF[k].has(v)?(DF[k].delete(v),btn.classList.remove('on')):(DF[k].add(v),btn.classList.add('on'))}
   dpage=1;drun();
 }
 function updDCost(){let mn=+document.getElementById('drmin').value,mx=+document.getElementById('drmax').value;if(mn>mx)[mn,mx]=[mx,mn];DF.cmin=mn;DF.cmax=mx;document.getElementById('dcmn').textContent=mn;document.getElementById('dcmx').textContent=mx>=10?'10+':mx;dpage=1;drun()}
 function dclrAll(){
   ['ink','rarity','type','typeExact','classification','set','keywords'].forEach(k=>DF[k].clear());
-  DF.inkwell=null;DF.cmin=0;DF.cmax=10;DF.q=document.getElementById('srch').value.trim();
+  DF.inkwell=null;DF.format=null;DF.cmin=0;DF.cmax=10;DF.q=document.getElementById('srch').value.trim();
   document.getElementById('drmin').value=0;document.getElementById('drmax').value=10;
   document.getElementById('dcmn').textContent='0';document.getElementById('dcmx').textContent='10+';
   ['l','s','w'].forEach(s=>clrStat(s,'d'));
@@ -393,6 +403,7 @@ function runQ(f,cnt,pg,co){
   if(f.smin!==null){c.push(`str>=? AND str<=?`);p.push(f.smin,f.smax)}
   if(f.wmin!==null){c.push(`wil>=? AND wil<=?`);p.push(f.wmin,f.wmax)}
   if(f.keywords&&f.keywords.size){c.push(`(${[...f.keywords].map(()=>'keywords LIKE ?').join(' AND ')})`);f.keywords.forEach(k=>p.push(`%"${k}"%`))}
+  if(f.format==='core'){c.push(CORE_LEGAL_SQL)}
   if(co){if(!coll.size)c.push('1=0');else{c.push(`id IN(${[...coll].map(()=>'?').join(',')})`);p.push(...coll)}}
   const w=c.length?'WHERE '+c.join(' AND '):'';
   const allP=[...fromP,...p];
@@ -484,6 +495,7 @@ function drunQ(f,cnt,pg){
   if(f.smin!==null){c.push(`str>=? AND str<=?`);p.push(f.smin,f.smax)}
   if(f.wmin!==null){c.push(`wil>=? AND wil<=?`);p.push(f.wmin,f.wmax)}
   if(f.keywords&&f.keywords.size){c.push(`(${[...f.keywords].map(()=>'keywords LIKE ?').join(' AND ')})`);f.keywords.forEach(k=>p.push(`%"${k}"%`))}
+  if(f.format==='core'){c.push(CORE_LEGAL_SQL)}
   const w=c.length?'WHERE '+c.join(' AND '):'';
   const allP=[...fromP,...p];
   if(cnt){const r=db.exec(`SELECT COUNT(*) FROM ${from} ${w}`,allP);return r[0]?.values[0][0]||0}
@@ -574,6 +586,7 @@ function renderCards(cards,gridId,gBtnId,lBtnId,v,deckMode,deck){
     const qty=deck&&deck.cards[c.id]?(deck.cards[c.id]?.qty??deck.cards[c.id]):activeDeck&&activeDeck.cards[c.id]?(activeDeck.cards[c.id]?.qty??activeDeck.cards[c.id]):0;
     const sbQty=deck&&deck.sideboard?.[c.id]?(deck.sideboard[c.id]?.qty??deck.sideboard[c.id]):activeDeck&&activeDeck.sideboard?.[c.id]?(activeDeck.sideboard[c.id]?.qty??activeDeck.sideboard[c.id]):0;
     el.className='ci'+(isColl&&!deckMode?' coll':'')+(inDeck&&deckMode?' in-deck':'')+(inDeck&&!deckMode?' browsing-in-deck':'');
+    el.dataset.id=c.id;
     const rar=c.rarity||'Common';
     const img=v==='l'?c.img_s:c.img_n;
     const imgH=img?`<img src="${h(img)}" alt="${h(c.name)}" loading="lazy" onerror="this.style.display='none';this.nextSibling&&(this.nextSibling.style.display='flex')">`:'';
@@ -592,7 +605,11 @@ function renderCards(cards,gridId,gBtnId,lBtnId,v,deckMode,deck){
           ${price}
         </div>
       </div>
-      ${deckMode?`<div class="add-btn">
+      ${deckMode?multiSelectMode?
+        `<div class="ms-check${multiSelect.has(c.id)?' ms-selected':''}" id="msc_${c.id}" onclick="event.stopPropagation();toggleCardSelect('${c.id}')">
+          <div class="ms-tick">${multiSelect.has(c.id)?'✓':''}</div>
+        </div>`
+        :`<div class="add-btn">
         <div class="deck-btn-add" onclick="event.stopPropagation();addToDeck('${c.id}')">＋ Add${qty>0?` (${qty})`:''}</div>
         ${qty>0?`<div class="deck-btn-remove" onclick="event.stopPropagation();removeFromDeck('${c.id}')">－ Remove</div>`:''}
         <div class="deck-btn-sb" onclick="event.stopPropagation();addToSideboard('${c.id}')" title="Add to sideboard">SB${sbQty>0?` (${sbQty})`:''}</div>
@@ -620,7 +637,7 @@ function renderCards(cards,gridId,gBtnId,lBtnId,v,deckMode,deck){
         ${qty?`<span class="qty-num">${qty}</span><div class="qty-btn" onclick="event.stopPropagation();removeFromDeck('${c.id}')">−</div>`:''}
       </div>`:`<div class="cbadge" style="position:static;margin-left:.4rem">${isColl?'✓':''}</div>`}`;
     }
-    el.onclick=()=>openCard(c.id,deckMode);
+    el.onclick=()=>{if(deckMode&&multiSelectMode)toggleCardSelect(c.id);else openCard(c.id,deckMode);};
     // Hover preview — only grid mode, only when not on mobile
     if(v==='g'&&window.matchMedia('(hover:hover)').matches){
       el.addEventListener('mouseenter',()=>showPreview(c,el));
@@ -798,6 +815,50 @@ function doImport(){
   const el=document.getElementById('ires');if(!nf.length){el.textContent=`✓ Matched ${matched}/${tot} cards.`;el.className='ires ok'}else{el.innerHTML=`Matched ${matched}/${tot}. Not found: ${nf.slice(0,4).map(n=>`<em>${h(n)}</em>`).join(', ')}${nf.length>4?` +${nf.length-4} more`:''}`;el.className=matched?'ires':'ires err'}
 }
 
+function openDeckImport(){
+  document.getElementById('dimod').classList.remove('h');
+  document.getElementById('ditxt').value='';
+  document.getElementById('dires').textContent='Paste a list then click Import.';
+  document.getElementById('dires').className='ires';
+}
+function closeDImod(){document.getElementById('dimod').classList.add('h')}
+function doDeckImport(){
+  const deck=getCurDeck();if(!deck)return;
+  if(!deck.sideboard)deck.sideboard={};
+  const txt=document.getElementById('ditxt').value.trim();if(!txt)return;
+  const directives=parseDeckImportText(txt);
+  let matched=0,notFound=[];
+  for(const d of directives){
+    // Look up by name + version (version may be null)
+    let res;
+    if(d.version)
+      res=db.exec(`SELECT id FROM card_canonical WHERE LOWER(name)=LOWER(?) AND LOWER(version)=LOWER(?) LIMIT 1`,[d.name,d.version]);
+    else
+      res=db.exec(`SELECT id FROM card_canonical WHERE LOWER(name)=LOWER(?) AND (version IS NULL OR version='') LIMIT 1`,[d.name]);
+    const id=res[0]?.values[0]?.[0];
+    if(!id){notFound.push(d.version?`${d.name} - ${d.version}`:d.name);continue;}
+    if(d.target==='sideboard'){
+      const cur=deck.sideboard[id];
+      const curQty=cur?(typeof cur==='number'?cur:cur.qty):0;
+      deck.sideboard[id]={qty:curQty+d.qty,foil:d.foil||(cur?.foil||false)};
+    }else{
+      const cur=deck.cards[id];
+      const curQty=cur?(typeof cur==='number'?cur:cur.qty):0;
+      deck.cards[id]={qty:curQty+d.qty,foil:d.foil||(cur?.foil||false)};
+    }
+    matched++;
+  }
+  saveDecks();renderDeckPanel();drun();
+  const el=document.getElementById('dires');
+  if(!notFound.length){
+    el.textContent=`✓ Imported ${matched} card${matched!==1?'s':''}.`;
+    el.className='ires ok';
+  }else{
+    el.innerHTML=`Imported ${matched}. Not found: ${notFound.slice(0,4).map(n=>`<em>${h(n)}</em>`).join(', ')}${notFound.length>4?` +${notFound.length-4} more`:''}`;
+    el.className=matched?'ires':'ires err';
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // DECK MANAGER
 // ═══════════════════════════════════════════════════════════════════
@@ -816,6 +877,100 @@ function setDeckListGroup(val){
   // Update active state on group buttons
   document.querySelectorAll('.dl-group-btn').forEach(b=>b.classList.toggle('on',b.dataset.group===val));
   renderDeckPanel();
+}
+function toggleMultiSelect(){
+  multiSelectMode=!multiSelectMode;
+  multiSelect.clear();
+  const btn=document.getElementById('multiSelBtn');
+  if(btn)btn.classList.toggle('on',multiSelectMode);
+  updMultiBar();
+  drun();
+}
+function toggleCardSelect(id){
+  multiSelect.has(id)?multiSelect.delete(id):multiSelect.add(id);
+  // Update just this card's selected state without full re-render
+  const el=document.getElementById('msc_'+id);
+  if(el)el.classList.toggle('ms-selected',multiSelect.has(id));
+  updMultiBar();
+}
+function updMultiBar(){
+  const bar=document.getElementById('multiBar');
+  if(!bar)return;
+  if(!multiSelectMode){bar.style.display='none';return;}
+  bar.style.display='flex';
+  const n=multiSelect.size;
+  const visibleSelected=document.querySelectorAll('#dgrid .ms-check.ms-selected').length;
+  let label;
+  if(n===0)label='Select cards below or use Select All';
+  else if(n>visibleSelected)label=`${n} card${n!==1?'s':''} selected (across all pages)`;
+  else label=`${n} card${n!==1?'s':''} selected`;
+  document.getElementById('multiBarCount').textContent=label;
+}
+function addSelectedToDeck(){
+  const deck=getCurDeck();if(!deck||!multiSelect.size)return;
+  multiSelect.forEach(id=>{
+    const e=cardEntry(deck,id);
+    deck.cards[id]=e?{qty:e.qty+1,foil:e.foil}:{qty:1,foil:false};
+  });
+  multiSelect.clear();
+  saveDecks();updMultiBar();renderDeckPanel();drun();
+}
+function addSelectedToSideboard(){
+  const deck=getCurDeck();if(!deck||!multiSelect.size)return;
+  if(!deck.sideboard)deck.sideboard={};
+  multiSelect.forEach(id=>{
+    const e=sbEntry(deck,id);
+    deck.sideboard[id]=e?{qty:e.qty+1,foil:e.foil}:{qty:1,foil:false};
+  });
+  multiSelect.clear();
+  saveDecks();updMultiBar();renderDeckPanel();drun();
+}
+
+function selectAll(){
+  // Query the DB for every id that matches the current deck picker filters —
+  // identical WHERE logic to drunQ but no LIMIT, so all pages are included.
+  const deck=getCurDeck();
+  let from, fromP;
+  if(dDeckFilter){
+    const ids=deck?Object.keys(dDeckFilter==='sideboard'?(deck.sideboard||{}):deck.cards):[];
+    if(!ids.length){updMultiBar();return;}
+    const ph=ids.map(()=>'?').join(',');
+    from=`(SELECT * FROM cards WHERE id IN(${ph})) card_canonical`;
+    fromP=[...ids];
+  } else {
+    [from,fromP]=buildFrom(DF.rarity);
+  }
+  const c=[],p=[];
+  if(DF.q){c.push(`(name LIKE ? OR version LIKE ? OR ctxt LIKE ? OR flavor LIKE ? OR classes LIKE ?)`);const s=`%${DF.q}%`;p.push(s,s,s,s,s)}
+  if(DF.ink.size){c.push(`ink IN(${[...DF.ink].map(()=>'?').join(',')})`);p.push(...DF.ink)}
+  const typeClauses=[];
+  if(DF.type.size){DF.type.forEach(t=>{typeClauses.push(`types LIKE ?`);p.push(`%"${t}"%`)})}
+  if(DF.typeExact&&DF.typeExact.size){DF.typeExact.forEach(t=>{typeClauses.push(`(json_array_length(types)=1 AND types LIKE ?)`);p.push(`%"${t}"%`)})}
+  if(typeClauses.length)c.push(`(${typeClauses.join(' OR ')})`);
+  if(DF.classification&&DF.classification.size){c.push(`(${[...DF.classification].map(()=>'classes LIKE ?').join(' OR ')})`);DF.classification.forEach(cl=>p.push(`%"${cl}"%`))}
+  if(DF.set.size){
+    if(DF.rarity&&DF.rarity.size>0){c.push(`set_code IN(${[...DF.set].map(()=>'?').join(',')})`);p.push(...DF.set);}
+    else{const ph=[...DF.set].map(()=>'?').join(',');c.push(`EXISTS(SELECT 1 FROM cards p WHERE p.name=card_canonical.name AND COALESCE(p.version,'')=COALESCE(card_canonical.version,'') AND p.set_code IN(${ph}))`);p.push(...DF.set);}
+  }
+  if(DF.inkwell!==null){c.push(`inkwell=?`);p.push(+DF.inkwell)}
+  c.push(`(cost>=? AND (cost<=? OR ?>=10))`);p.push(DF.cmin,DF.cmax,DF.cmax);
+  if(DF.lmin!==null){c.push(`lore>=? AND lore<=?`);p.push(DF.lmin,DF.lmax)}
+  if(DF.smin!==null){c.push(`str>=? AND str<=?`);p.push(DF.smin,DF.smax)}
+  if(DF.wmin!==null){c.push(`wil>=? AND wil<=?`);p.push(DF.wmin,DF.wmax)}
+  if(DF.keywords&&DF.keywords.size){c.push(`(${[...DF.keywords].map(()=>'keywords LIKE ?').join(' AND ')})`);DF.keywords.forEach(k=>p.push(`%"${k}"%`))}
+  if(DF.format==='core'){c.push(CORE_LEGAL_SQL)}
+  const w=c.length?'WHERE '+c.join(' AND '):'';
+  const allP=[...fromP,...p];
+  const res=db.exec(`SELECT id FROM ${from} ${w}`,allP);
+  if(res[0])res[0].values.forEach(([id])=>multiSelect.add(id));
+  // Update visible tiles to reflect newly selected state
+  document.querySelectorAll('#dgrid .ci[data-id]').forEach(el=>{
+    if(multiSelect.has(el.dataset.id)){
+      const chk=el.querySelector('.ms-check');
+      if(chk){chk.classList.add('ms-selected');const t=chk.querySelector('.ms-tick');if(t)t.textContent='✓';}
+    }
+  });
+  updMultiBar();
 }
 function togglePrintPicker(id){
   expandedPrintId = expandedPrintId===id ? null : id;
@@ -891,9 +1046,11 @@ function renderDecksHome(){
 }
 
 function getDeckInks(deck){
-  const inks=new Set();
-  Object.keys(deck.cards).forEach(id=>{const r=db.exec('SELECT ink FROM cards WHERE id=?',[id]);if(r[0]?.values[0]?.[0])inks.add(r[0].values[0][0])});
-  return[...inks];
+  const ids=Object.keys(deck.cards);
+  if(!ids.length)return[];
+  const ph=ids.map(()=>'?').join(',');
+  const r=db.exec(`SELECT DISTINCT ink FROM cards WHERE id IN(${ph}) AND ink IS NOT NULL`,ids);
+  return r[0]?r[0].values.map(v=>v[0]):[];
 }
 
 function saveDeck(){
@@ -1300,39 +1457,31 @@ function exportDeckTxt(){
 function exportDeck(id){const deck=decks.find(d=>d.id===id);if(!deck)return;const txt=getDeckText(deck);if(!txt)return;const blob=new Blob([txt],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${deck.name.replace(/[^a-z0-9]/gi,'_')}.txt`;a.click();URL.revokeObjectURL(a.href)}
 function copyDeckTxt(){const txt=getDeckText(getCurDeck());if(!txt)return;navigator.clipboard.writeText(txt).then(()=>{const btn=event.target;const orig=btn.textContent;btn.textContent='Copied!';setTimeout(()=>btn.textContent=orig,1400)})}
 
-// ── DECK IMPORT ──
-function openDeckImport(){document.getElementById('dimod').classList.remove('h');document.getElementById('dires').textContent='Paste a list then click Import.';document.getElementById('dires').className='ires'}
-function closeDImod(){document.getElementById('dimod').classList.add('h')}
-function doDeckImport(){
+// ── DECK CARD EXPORT ──
+
+function exportDeckCards(){
   const deck=getCurDeck();if(!deck)return;
-  if(!deck.sideboard)deck.sideboard={};
-  const txt=document.getElementById('ditxt').value.trim();if(!txt)return;
-  const lines=txt.split('\n').map(l=>l.trim()).filter(Boolean);
-  let matched=0,tot=0,nf=[];
-  let isSB=false;
-  for(const line of lines){
-    if(/^sideboard:?$/i.test(line)){isSB=true;continue;}
-    const m=line.match(/^(?:(\d+)\s*[xX×]\s*)?(.+)$/);if(!m)continue;tot++;
-    const qty=parseInt(m[1]||'1'),raw=m[2].replace(/\(foil\)/i,'').trim();
-    const di=raw.indexOf(' - ');const name=di>-1?raw.substring(0,di).trim():raw;const ver=di>-1?raw.substring(di+3).trim():null;
-    let res;if(ver)res=db.exec(`SELECT id FROM cards WHERE LOWER(name)=LOWER(?) AND LOWER(version)=LOWER(?) LIMIT 1`,[name,ver]);
-    else res=db.exec(`SELECT id FROM cards WHERE LOWER(name)=LOWER(?) LIMIT 1`,[name]);
-    if(res[0]?.values[0]){
-      const id=res[0].values[0][0];
-      if(isSB){
-        const cur=deck.sideboard[id];
-        const curQty=cur?(typeof cur==='number'?cur:cur.qty):0;
-        deck.sideboard[id]={qty:curQty+qty,foil:cur?.foil||false};
-      }else{
-        const cur=deck.cards[id];
-        const curQty=cur?(typeof cur==='number'?cur:cur.qty):0;
-        deck.cards[id]={qty:curQty+qty,foil:cur?.foil||false};
-      }
-      matched++;
-    }else nf.push(raw);
-  }
-  saveDecks();renderDeckPanel();drun();
-  const el=document.getElementById('dires');if(!nf.length){el.textContent=`✓ Added ${matched}/${tot} cards.`;el.className='ires ok'}else{el.innerHTML=`Added ${matched}/${tot}. Not found: ${nf.slice(0,4).map(n=>`<em>${h(n)}</em>`).join(', ')}${nf.length>4?` +${nf.length-4} more`:''}`;el.className=matched?'ires':'ires err'}
+  const entries=Object.entries(deck.cards).map(([id,v])=>[id,typeof v==='number'?{qty:v,foil:false}:v]);
+  const sbEntries=Object.entries(deck.sideboard||{}).map(([id,v])=>[id,typeof v==='number'?{qty:v,foil:false}:v]);
+  if(!entries.length){alert('No cards in deck.');return;}
+
+  const allIds=[...new Set([...entries.map(([id])=>id),...sbEntries.map(([id])=>id)])];
+  const res=db.exec(
+    `SELECT id,name,version,ink,inkwell,cost,types,classes,str,wil,lore,move_cost,rarity,ctxt,flavor FROM cards WHERE id IN(${allIds.map(()=>'?').join(',')})`,
+    allIds
+  );
+  if(!res[0]){alert('Could not load card data.');return;}
+  const cardData={};
+  const{columns,values}=res[0];
+  values.forEach(r=>{const o={};columns.forEach((c,i)=>o[c]=r[i]);cardData[o.id]=o});
+
+  const txt=buildDeckCardText(deck,cardData);
+  const blob=new Blob([txt],{type:'text/plain'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`${(deck.name||'deck').replace(/[^a-z0-9]/gi,'_')}_cards.txt`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),10000);
 }
 
 // ═══════════════════════════════════════════════════════════════════

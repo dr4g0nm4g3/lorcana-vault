@@ -44,6 +44,15 @@ function build() {
     throw new Error('template.html is missing the // $$LORCANA_APP$$ placeholder');
   }
 
+  // Validate JS syntax of each source file before injecting
+  for (const [label, code] of [['lorcana.js', logicCode], ['app.js', appCode]]) {
+    try {
+      new Function(code); // throws SyntaxError if invalid
+    } catch (e) {
+      throw new Error(`Syntax error in ${label}: ${e.message}`);
+    }
+  }
+
   // Inject: replace both placeholders in a single pass
   const output = template
     .replace('// $$LORCANA_LOGIC$$', logicCode)

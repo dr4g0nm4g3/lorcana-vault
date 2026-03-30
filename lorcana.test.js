@@ -16,6 +16,8 @@
 //   7b.Print swapping   – swapCardPrint / swapSideboardPrint
 //   8. Statistics       – totalCards / unique / avgCost / inkCounts
 //   9. Export           – formatDeckLine / buildDeckText
+//   9b.Card export      – escHtml / fmtRules / buildCardRowHtml
+//   9c.AI text export   – buildCardText / buildDeckCardText
 //  10. Import parsing   – parseDeckImportText
 //  11. Filter helpers   – makeFilter / isStatFilterActive
 //  12. Rarity ranking   – rarityRank / highestRarity
@@ -30,6 +32,8 @@ const assert = require('node:assert/strict');
 const {
   normStr,
   h,
+  ROTATED_SET_CODES,
+  CORE_LEGAL_SQL,
   cardEntry,
   sbEntry,
   migrateDeck,
@@ -43,6 +47,11 @@ const {
   toggleSideboardFoil,
   swapCardPrint,
   swapSideboardPrint,
+  escHtml,
+  fmtRules,
+  buildCardRowHtml,
+  buildCardText,
+  buildDeckCardText,
   deckTotalCards,
   sideboardTotalCards,
   deckUniqueCards,
@@ -916,6 +925,502 @@ describe('buildDeckText', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 9b. Card export helpers  – escHtml / fmtRules / buildCardRowHtml
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('escHtml', () => {
+  test('passes through plain strings unchanged', () => {
+    assert.equal(escHtml('Hello World'), 'Hello World');
+  });
+
+  test('escapes ampersand', () => {
+    assert.equal(escHtml('Cats & Dogs'), 'Cats &amp; Dogs');
+  });
+
+  test('escapes less-than and greater-than', () => {
+    assert.equal(escHtml('<b>bold</b>'), '&lt;b&gt;bold&lt;/b&gt;');
+  });
+
+  test('escapes double quotes', () => {
+    assert.equal(escHtml('"quoted"'), '&quot;quoted&quot;');
+  });
+
+  test('handles null and undefined gracefully', () => {
+    assert.equal(escHtml(null), '');
+    assert.equal(escHtml(undefined), '');
+  });
+
+  test('handles numbers', () => {
+    assert.equal(escHtml(42), '42');
+  });
+});
+
+describe('fmtRules', () => {
+  test('returns empty string for null/undefined input', () => {
+    assert.equal(fmtRules(null), '');
+    assert.equal(fmtRules(''), '');
+  });
+
+  test('converts {I} to cost diamond symbol', () => {
+    assert.ok(fmtRules('Pay {I}').includes('◆'));
+  });
+
+  test('converts {E} to exert symbol', () => {
+    assert.ok(fmtRules('Exert {E}').includes('⟳'));
+  });
+
+  test('converts {S} to lore symbol', () => {
+    assert.ok(fmtRules('Gain {S}').includes('✦'));
+  });
+
+  test('converts newlines to <br>', () => {
+    assert.ok(fmtRules('Line 1\nLine 2').includes('<br>'));
+  });
+
+  test('bolds leading all-caps keyword at start of text', () => {
+    const out = fmtRules('RUSH This character can challenge...');
+    assert.ok(out.includes('<b>RUSH</b>') || out.includes('<b>RUSH '), `got: ${out}`);
+  });
+
+  test('bolds keyword after line break', () => {
+    const out = fmtRules('First line.\nSHIFT 3');
+    assert.ok(out.includes('<b>SHIFT</b>') || out.includes('<b>SHIFT '), `got: ${out}`);
+  });
+
+  test('escapes HTML in rules text', () => {
+    const out = fmtRules('Deal <damage>');
+    assert.ok(out.includes('&lt;damage&gt;'));
+    assert.ok(!out.includes('<damage>'));
+  });
+
+  test('multiple symbol types in one string', () => {
+    const out = fmtRules('Pay {I}, exert {E}, gain {S}');
+    assert.ok(out.includes('◆'));
+    assert.ok(out.includes('⟳'));
+    assert.ok(out.includes('✦'));
+  });
+});
+
+describe('buildCardRowHtml', () => {
+  const baseCard = {
+    name: 'Mickey Mouse',
+    version: 'Brave Little Tailor',
+    ink: 'Amber',
+    inkwell: 1,
+    cost: 4,
+    types: '["Character"]',
+    classes: '["Hero"]',
+    str: 3,
+    wil: 2,
+    lore: 2,
+    move_cost: null,
+    ctxt: 'RUSH This character can challenge...',
+    flavor: 'A famous mouse.',
+  };
+  const baseEntry = { qty: 1, foil: false };
+
+  test('returns empty string when card is null', () => {
+    assert.equal(buildCardRowHtml(null, baseEntry), '');
+  });
+
+  test('includes card name', () => {
+    const out = buildCardRowHtml(baseCard, baseEntry);
+    assert.ok(out.includes('Mickey Mouse'));
+  });
+
+  test('includes version', () => {
+    const out = buildCardRowHtml(baseCard, baseEntry);
+    assert.ok(out.includes('Brave Little Tailor'));
+  });
+
+  test('includes ink name', () => {
+    const out = buildCardRowHtml(baseCard, baseEntry);
+    assert.ok(out.includes('Amber'));
+  });
+
+  test('includes cost', () => {
+    const out = buildCardRowHtml(baseCard, baseEntry);
+    assert.ok(out.includes('4'));
+  });
+
+  test('shows Inkable when inkwell is 1', () => {
+    const out = buildCardRowHtml(baseCard, baseEntry);
+    assert.ok(out.includes('Inkable'));
+    assert.ok(!out.includes('Non-inkable'));
+  });
+
+  test('shows Non-inkable when inkwell is 0', () => {
+    const out = buildCardRowHtml({ ...baseCard, inkwell: 0 }, baseEntry);
+    assert.ok(out.includes('Non-inkable'));
+  });
+
+  test('includes type', () => {
+    const out = buildCardRowHtml(baseCard, baseEntry);
+    assert.ok(out.includes('Character'));
+  });
+
+  test('includes classification', () => {
+    const out = buildCardRowHtml(baseCard, baseEntry);
+    assert.ok(out.includes('Hero'));
+  });
+
+  test('includes STR for characters', () => {
+    const out = buildCardRowHtml(baseCard, baseEntry);
+    assert.ok(out.includes('STR'));
+    assert.ok(out.includes('3'));
+  });
+
+  test('includes WIL for characters', () => {
+    const out = buildCardRowHtml(baseCard, baseEntry);
+    assert.ok(out.includes('WIL'));
+  });
+
+  test('includes lore for characters', () => {
+    const out = buildCardRowHtml(baseCard, baseEntry);
+    assert.ok(out.match(/◆2|lore.*2/));
+  });
+
+  test('omits STR/WIL/lore for non-character types', () => {
+    const actionCard = { ...baseCard, types: '["Action"]', str: 3, wil: 2, lore: 2 };
+    const out = buildCardRowHtml(actionCard, baseEntry);
+    assert.ok(!out.includes('STR'));
+    assert.ok(!out.includes('WIL'));
+  });
+
+  test('shows Move cost for Locations', () => {
+    const locCard = { ...baseCard, types: '["Location"]', move_cost: 2, str: null, wil: null };
+    const out = buildCardRowHtml(locCard, baseEntry);
+    assert.ok(out.includes('Move'));
+  });
+
+  test('shows qty badge when qty > 1', () => {
+    const out = buildCardRowHtml(baseCard, { qty: 3, foil: false });
+    assert.ok(out.includes('×3'));
+  });
+
+  test('omits qty badge when qty is 1', () => {
+    const out = buildCardRowHtml(baseCard, { qty: 1, foil: false });
+    assert.ok(!out.includes('×1'));
+  });
+
+  test('shows foil badge when foil is true', () => {
+    const out = buildCardRowHtml(baseCard, { qty: 1, foil: true });
+    assert.ok(out.includes('Foil'));
+  });
+
+  test('omits foil badge when foil is false', () => {
+    const out = buildCardRowHtml(baseCard, { qty: 1, foil: false });
+    assert.ok(!out.includes('Foil'));
+  });
+
+  test('includes rules text', () => {
+    const out = buildCardRowHtml(baseCard, baseEntry);
+    assert.ok(out.includes('rules-text'));
+    assert.ok(out.includes('RUSH') || out.includes('challenge'));
+  });
+
+  test('includes flavor text', () => {
+    const out = buildCardRowHtml(baseCard, baseEntry);
+    assert.ok(out.includes('flavor-text'));
+    assert.ok(out.includes('A famous mouse.'));
+  });
+
+  test('omits rules block when ctxt is null', () => {
+    const out = buildCardRowHtml({ ...baseCard, ctxt: null }, baseEntry);
+    assert.ok(!out.includes('rules-text'));
+  });
+
+  test('omits flavor block when flavor is null', () => {
+    const out = buildCardRowHtml({ ...baseCard, flavor: null }, baseEntry);
+    assert.ok(!out.includes('flavor-text'));
+  });
+
+  test('escapes HTML special chars in card name', () => {
+    const out = buildCardRowHtml({ ...baseCard, name: 'A & B' }, baseEntry);
+    assert.ok(out.includes('A &amp; B'));
+    assert.ok(!out.includes('A & B'));
+  });
+
+  test('handles card with no version', () => {
+    const out = buildCardRowHtml({ ...baseCard, version: null }, baseEntry);
+    assert.ok(out.includes('Mickey Mouse'));
+    assert.ok(!out.includes('card-ver'));
+  });
+
+  test('handles card with no ink', () => {
+    const out = buildCardRowHtml({ ...baseCard, ink: null }, baseEntry);
+    assert.ok(!out.includes('ink-badge'));
+  });
+
+  test('handles card with no cost', () => {
+    const out = buildCardRowHtml({ ...baseCard, cost: null }, baseEntry);
+    assert.ok(!out.includes('stat-chip.*◆') && !out.includes('cost-sym'));
+  });
+
+  test('handles empty classes array', () => {
+    const out = buildCardRowHtml({ ...baseCard, classes: '[]' }, baseEntry);
+    assert.ok(!out.includes('type-chip cls'));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 9c. AI text export  – buildCardText / buildDeckCardText
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('buildCardText', () => {
+  const charCard = {
+    name: 'Mickey Mouse',
+    version: 'Brave Little Tailor',
+    ink: 'Amber',
+    inkwell: 1,
+    cost: 4,
+    rarity: 'Super_rare',
+    types: '["Character"]',
+    classes: '["Hero","Prince"]',
+    str: 3,
+    wil: 2,
+    lore: 2,
+    move_cost: null,
+    ctxt: 'RUSH This character can challenge the turn it enters play.',
+    flavor: 'A famous mouse.',
+  };
+  const basicEntry = { qty: 1, foil: false };
+
+  test('returns empty string for null card', () => {
+    assert.equal(buildCardText(null, basicEntry), '');
+  });
+
+  test('header uses === Name - Version === format', () => {
+    const out = buildCardText(charCard, basicEntry);
+    assert.ok(out.startsWith('=== Mickey Mouse - Brave Little Tailor ==='));
+  });
+
+  test('header omits version separator when version is null', () => {
+    const out = buildCardText({ ...charCard, version: null }, basicEntry);
+    assert.ok(out.startsWith('=== Mickey Mouse ==='));
+    assert.ok(!out.includes(' - '));
+  });
+
+  test('includes qty on deck context line', () => {
+    const out = buildCardText(charCard, { qty: 3, foil: false });
+    assert.ok(out.includes('Qty: 3'));
+  });
+
+  test('includes Foil: Yes when foil is true', () => {
+    const out = buildCardText(charCard, { qty: 1, foil: true });
+    assert.ok(out.includes('Foil: Yes'));
+  });
+
+  test('omits Foil field when not foil', () => {
+    const out = buildCardText(charCard, basicEntry);
+    assert.ok(!out.includes('Foil:'));
+  });
+
+  test('includes ink name on stats line', () => {
+    const out = buildCardText(charCard, basicEntry);
+    assert.ok(out.includes('Ink: Amber'));
+  });
+
+  test('includes cost with [I] symbol', () => {
+    const out = buildCardText(charCard, basicEntry);
+    assert.ok(out.includes('Cost: 4[I]'));
+  });
+
+  test('shows Inkable: Yes for inkwell=1', () => {
+    const out = buildCardText(charCard, basicEntry);
+    assert.ok(out.includes('Inkable: Yes'));
+  });
+
+  test('shows Inkable: No for inkwell=0', () => {
+    const out = buildCardText({ ...charCard, inkwell: 0 }, basicEntry);
+    assert.ok(out.includes('Inkable: No'));
+  });
+
+  test('includes rarity with underscore replaced by space', () => {
+    const out = buildCardText(charCard, basicEntry);
+    assert.ok(out.includes('Rarity: Super rare'));
+  });
+
+  test('includes type on type line', () => {
+    const out = buildCardText(charCard, basicEntry);
+    assert.ok(out.includes('Type: Character'));
+  });
+
+  test('includes classes on type line', () => {
+    const out = buildCardText(charCard, basicEntry);
+    assert.ok(out.includes('Class: Hero, Prince'));
+  });
+
+  test('includes STR, WIL, Lore for Character', () => {
+    const out = buildCardText(charCard, basicEntry);
+    assert.ok(out.includes('STR: 3'));
+    assert.ok(out.includes('WIL: 2'));
+    assert.ok(out.includes('Lore: 2[S]'));
+  });
+
+  test('omits STR/WIL/Lore for Action cards', () => {
+    const action = { ...charCard, types: '["Action"]', str: 3, wil: 2 };
+    const out = buildCardText(action, basicEntry);
+    assert.ok(!out.includes('STR:'));
+    assert.ok(!out.includes('WIL:'));
+  });
+
+  test('includes Move cost and Lore for Location', () => {
+    const loc = { ...charCard, types: '["Location"]', move_cost: 2, lore: 3, str: null, wil: null };
+    const out = buildCardText(loc, basicEntry);
+    assert.ok(out.includes('Move: 2[I]'));
+    assert.ok(out.includes('Lore: 3[S]'));
+  });
+
+  test('rules text uses [I] not {I}', () => {
+    const out = buildCardText({ ...charCard, ctxt: 'Pay {I} to use.' }, basicEntry);
+    assert.ok(out.includes('[I]'));
+    assert.ok(!out.includes('{I}'));
+  });
+
+  test('rules text uses [E] not {E}', () => {
+    const out = buildCardText({ ...charCard, ctxt: 'Exert {E} this.' }, basicEntry);
+    assert.ok(out.includes('[E]'));
+    assert.ok(!out.includes('{E}'));
+  });
+
+  test('rules text uses [S] not {S}', () => {
+    const out = buildCardText({ ...charCard, ctxt: 'Gain {S} lore.' }, basicEntry);
+    assert.ok(out.includes('[S]'));
+    assert.ok(!out.includes('{S}'));
+  });
+
+  test('rules text appears verbatim (not HTML-escaped)', () => {
+    const out = buildCardText(charCard, basicEntry);
+    assert.ok(out.includes('RUSH This character can challenge'));
+    assert.ok(!out.includes('&amp;'));
+    assert.ok(!out.includes('<br>'));
+  });
+
+  test('flavor text prefixed with Flavor:', () => {
+    const out = buildCardText(charCard, basicEntry);
+    assert.ok(out.includes('Flavor: "A famous mouse."'));
+  });
+
+  test('omits rules block when ctxt is null', () => {
+    const out = buildCardText({ ...charCard, ctxt: null }, basicEntry);
+    assert.ok(!out.includes('RUSH'));
+  });
+
+  test('omits flavor block when flavor is null', () => {
+    const out = buildCardText({ ...charCard, flavor: null }, basicEntry);
+    assert.ok(!out.includes('Flavor:'));
+  });
+
+  test('card with no stats (Action) has no combat line', () => {
+    const action = { ...charCard, types: '["Action"]', str: null, wil: null, lore: null };
+    const out = buildCardText(action, basicEntry);
+    assert.ok(!out.includes('STR:'));
+    assert.ok(!out.includes('WIL:'));
+    assert.ok(!out.includes('Lore:'));
+  });
+});
+
+describe('buildDeckCardText', () => {
+  const cardData = {
+    'c1': { name: 'Elsa', version: 'Spirit of Winter', ink: 'Amethyst', inkwell: 0, cost: 8,
+             rarity: 'Enchanted', types: '["Character"]', classes: '["Hero","Queen","Sorcerer"]',
+             str: 4, wil: 6, lore: 3, move_cost: null,
+             ctxt: 'SHIFT 6\nDEEP FREEZE When you play this...', flavor: null },
+    'c2': { name: 'Let It Go', version: null, ink: 'Amethyst', inkwell: 1, cost: 5,
+             rarity: 'Rare', types: '["Action","Song"]', classes: '[]',
+             str: null, wil: null, lore: null, move_cost: null,
+             ctxt: 'Exert {E}, choose and banish one of your characters...', flavor: '"The cold never bothered me anyway."' },
+    's1': { name: 'Simba', version: 'Future King', ink: 'Amber', inkwell: 1, cost: 2,
+             rarity: 'Common', types: '["Character"]', classes: '["Hero","Prince"]',
+             str: 1, wil: 3, lore: 1, move_cost: null, ctxt: null, flavor: null },
+  };
+
+  test('returns empty string for null deck', () => {
+    assert.equal(buildDeckCardText(null, cardData), '');
+  });
+
+  test('output starts with DECK: header', () => {
+    const deck = { ...mkDeck(), name: 'My Cube' };
+    deck.cards['c1'] = { qty: 1, foil: false };
+    const out = buildDeckCardText(deck, cardData);
+    assert.ok(out.startsWith('DECK: My Cube'));
+  });
+
+  test('output includes total card count', () => {
+    const deck = mkDeck();
+    deck.cards['c1'] = { qty: 2, foil: false };
+    deck.cards['c2'] = { qty: 1, foil: false };
+    const out = buildDeckCardText(deck, cardData);
+    assert.ok(out.includes('Cards: 3'));
+  });
+
+  test('cards are separated by ---', () => {
+    const deck = mkDeck();
+    deck.cards['c1'] = { qty: 1, foil: false };
+    deck.cards['c2'] = { qty: 1, foil: false };
+    const out = buildDeckCardText(deck, cardData);
+    assert.ok(out.includes('---'));
+  });
+
+  test('cards sorted by cost ascending', () => {
+    const deck = mkDeck();
+    deck.cards['c1'] = { qty: 1, foil: false }; // cost 8
+    deck.cards['c2'] = { qty: 1, foil: false }; // cost 5
+    const out = buildDeckCardText(deck, cardData);
+    const posElsa = out.indexOf('Elsa');
+    const posLetItGo = out.indexOf('Let It Go');
+    assert.ok(posLetItGo < posElsa, 'Let It Go (cost 5) should appear before Elsa (cost 8)');
+  });
+
+  test('includes all card names from main deck', () => {
+    const deck = mkDeck();
+    deck.cards['c1'] = { qty: 1, foil: false };
+    deck.cards['c2'] = { qty: 1, foil: false };
+    const out = buildDeckCardText(deck, cardData);
+    assert.ok(out.includes('Elsa'));
+    assert.ok(out.includes('Let It Go'));
+  });
+
+  test('sideboard section header present when sideboard is non-empty', () => {
+    const deck = mkDeck();
+    deck.cards['c1'] = { qty: 1, foil: false };
+    deck.sideboard['s1'] = { qty: 1, foil: false };
+    const out = buildDeckCardText(deck, cardData);
+    assert.ok(out.includes('SIDEBOARD:'));
+    assert.ok(out.includes('Simba'));
+  });
+
+  test('no sideboard section when sideboard is empty', () => {
+    const deck = mkDeck();
+    deck.cards['c1'] = { qty: 1, foil: false };
+    const out = buildDeckCardText(deck, cardData);
+    assert.ok(!out.includes('SIDEBOARD:'));
+  });
+
+  test('rules text symbols converted to bracket notation in output', () => {
+    const deck = mkDeck();
+    deck.cards['c2'] = { qty: 1, foil: false };
+    const out = buildDeckCardText(deck, cardData);
+    assert.ok(out.includes('[E]'));
+    assert.ok(!out.includes('{E}'));
+  });
+
+  test('flavor text appears in output', () => {
+    const deck = mkDeck();
+    deck.cards['c2'] = { qty: 1, foil: false };
+    const out = buildDeckCardText(deck, cardData);
+    assert.ok(out.includes('The cold never bothered me anyway.'));
+  });
+
+  test('empty deck returns output with 0 cards', () => {
+    const deck = mkDeck();
+    const out = buildDeckCardText(deck, cardData);
+    assert.ok(out.includes('Cards: 0'));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 10. Import parsing
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1076,11 +1581,17 @@ describe('makeFilter', () => {
     assert.equal(f.wmax, null);
   });
 
+  test('format defaults to null (no filter)', () => {
+    const f = makeFilter();
+    assert.equal(f.format, null);
+  });
+
   test('accepts override values', () => {
-    const f = makeFilter({ cmin: 2, cmax: 5, q: 'Elsa' });
+    const f = makeFilter({ cmin: 2, cmax: 5, q: 'Elsa', format: 'core' });
     assert.equal(f.cmin, 2);
     assert.equal(f.cmax, 5);
     assert.equal(f.q, 'Elsa');
+    assert.equal(f.format, 'core');
   });
 
   test('two makeFilter() calls produce independent Set instances', () => {
@@ -1455,69 +1966,114 @@ describe('DB integration', () => {
     });
   });
 
-  // ── Rarity art selection (buildFrom logic) ────────────────────────────────
+  // ── Format legality filter ────────────────────────────────────────────────
 
-  describe('rarity-based art selection', () => {
-    const RARITY_RANK_SQL = `CASE rarity
-      WHEN 'Iconic'     THEN 0 WHEN 'Epic'       THEN 1
-      WHEN 'Enchanted'  THEN 2 WHEN 'Legendary'  THEN 3
-      WHEN 'Super_rare' THEN 4 WHEN 'Rare'       THEN 5
-      WHEN 'Uncommon'   THEN 6 ELSE 7 END`;
+  describe('format legality filter', () => {
+    // Core legality is determined by set_code, not the legalities.core field from
+    // Lorcast (which hasn't been updated to reflect Set 9 rotation).
+    // Rotated sets: 1, 2, 3, 4, cp, P1, D23.
+    // A card is Core-legal if any printing exists in a non-rotated set.
+    // Infinity shows all cards (no rotation filter).
 
-    test('when filtering by Enchanted, picks Enchanted row over Common/Rare', async (t) => {
-      const db = await makeDb();
-      if (!db) return t.skip('sql.js not installed');
-      insertCard(db, { id: 'r_common', name: 'Rarity Test Card', set_code: '1', rarity: 'Common' });
-      insertCard(db, { id: 'r_rare',   name: 'Rarity Test Card', set_code: '2', rarity: 'Rare' });
-      insertCard(db, { id: 'r_enc',    name: 'Rarity Test Card', set_code: '3', rarity: 'Enchanted' });
-      const rows = queryRows(db, `
-        SELECT c.id, c.rarity FROM cards c
-        WHERE c.name='Rarity Test Card' AND c.rarity IN ('Enchanted')
-          AND c.id=(SELECT c2.id FROM cards c2 WHERE c2.name=c.name AND COALESCE(c2.version,'')=COALESCE(c.version,'') AND c2.rarity IN ('Enchanted') ORDER BY ${RARITY_RANK_SQL.replace(/rarity/g,'c2.rarity')},c2.id LIMIT 1)
-      `);
-      assert.equal(rows.length, 1);
-      assert.equal(rows[0].rarity, 'Enchanted');
+    const NORM = "COALESCE(p.version,'')=COALESCE(card_canonical.version,'')";
+    const ROTATED = "'1','2','3','4','cp','P1','D23'";
+    const CORE_SQL = `EXISTS(SELECT 1 FROM cards p WHERE p.name=card_canonical.name AND ${NORM} AND p.set_code NOT IN(${ROTATED}))`;
+
+    test('CORE_LEGAL_SQL constant uses correct rotated set list', () => {
+      assert.ok(CORE_LEGAL_SQL.includes("NOT IN"));
+      assert.ok(CORE_LEGAL_SQL.includes("'1'"));
+      assert.ok(CORE_LEGAL_SQL.includes("'4'"));
+      assert.ok(CORE_LEGAL_SQL.includes("'cp'"));
+      assert.ok(CORE_LEGAL_SQL.includes("'D23'"));
     });
 
-    test('when filtering by Rare+Enchanted, picks Enchanted (higher priority)', async (t) => {
-      const db = await makeDb();
-      if (!db) return t.skip('sql.js not installed');
-      insertCard(db, { id: 'r2_common', name: 'Rarity Test Card2', set_code: '1', rarity: 'Common' });
-      insertCard(db, { id: 'r2_rare',   name: 'Rarity Test Card2', set_code: '2', rarity: 'Rare' });
-      insertCard(db, { id: 'r2_enc',    name: 'Rarity Test Card2', set_code: '3', rarity: 'Enchanted' });
-      const rows = queryRows(db, `
-        SELECT c.id, c.rarity FROM cards c
-        WHERE c.name='Rarity Test Card2' AND c.rarity IN ('Rare','Enchanted')
-          AND c.id=(SELECT c2.id FROM cards c2 WHERE c2.name=c.name AND COALESCE(c2.version,'')=COALESCE(c.version,'') AND c2.rarity IN ('Rare','Enchanted') ORDER BY ${RARITY_RANK_SQL.replace(/rarity/g,'c2.rarity')},c2.id LIMIT 1)
-      `);
-      assert.equal(rows.length, 1);
-      assert.equal(rows[0].rarity, 'Enchanted');
+    test('ROTATED_SET_CODES contains sets 1-4 and promo sets', () => {
+      assert.ok(ROTATED_SET_CODES.has('1'));
+      assert.ok(ROTATED_SET_CODES.has('2'));
+      assert.ok(ROTATED_SET_CODES.has('3'));
+      assert.ok(ROTATED_SET_CODES.has('4'));
+      assert.ok(ROTATED_SET_CODES.has('cp'));
+      assert.ok(ROTATED_SET_CODES.has('D23'));
+      assert.ok(!ROTATED_SET_CODES.has('5'));
+      assert.ok(!ROTATED_SET_CODES.has('9'));
     });
 
-    test('when filtering by Common only, returns Common row', async (t) => {
+    test('set 5+ card is Core-legal', async (t) => {
       const db = await makeDb();
       if (!db) return t.skip('sql.js not installed');
-      insertCard(db, { id: 'r3_common', name: 'Rarity Test Card3', set_code: '1', rarity: 'Common' });
-      insertCard(db, { id: 'r3_rare',   name: 'Rarity Test Card3', set_code: '2', rarity: 'Rare' });
-      insertCard(db, { id: 'r3_enc',    name: 'Rarity Test Card3', set_code: '3', rarity: 'Enchanted' });
-      const rows = queryRows(db, `
-        SELECT c.rarity FROM cards c
-        WHERE c.name='Rarity Test Card3' AND c.rarity IN ('Common')
-          AND c.id=(SELECT c2.id FROM cards c2 WHERE c2.name=c.name AND COALESCE(c2.version,'')=COALESCE(c.version,'') AND c2.rarity IN ('Common') ORDER BY ${RARITY_RANK_SQL.replace(/rarity/g,'c2.rarity')},c2.id LIMIT 1)
-      `);
-      assert.equal(rows.length, 1);
-      assert.equal(rows[0].rarity, 'Common');
+      insertCard(db, { id: 'c5', name: 'New Card', set_code: '5' });
+      const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name='New Card' AND ${CORE_SQL}`);
+      assert.equal(count, 1);
     });
 
-    test('no rarity filter uses card_canonical (earliest print by MIN id)', async (t) => {
+    test('set 1 card with no reprint is excluded from Core', async (t) => {
       const db = await makeDb();
       if (!db) return t.skip('sql.js not installed');
-      insertCard(db, { id: 'r4_common', name: 'Rarity Test Card4', set_code: '1', rarity: 'Common' });
-      insertCard(db, { id: 'r4_enc',    name: 'Rarity Test Card4', set_code: '3', rarity: 'Enchanted' });
-      insertCard(db, { id: 'r4_rare',   name: 'Rarity Test Card4', set_code: '2', rarity: 'Rare' });
-      const rows = queryRows(db, `SELECT id, rarity FROM card_canonical WHERE name='Rarity Test Card4'`);
+      insertCard(db, { id: 'c1', name: 'Old Card', set_code: '1' });
+      const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name='Old Card' AND ${CORE_SQL}`);
+      assert.equal(count, 0);
+    });
+
+    test('set 2, 3, 4 cards are also excluded from Core', async (t) => {
+      const db = await makeDb();
+      if (!db) return t.skip('sql.js not installed');
+      insertCard(db, { id: 'c2', name: 'Set2 Card', set_code: '2' });
+      insertCard(db, { id: 'c3', name: 'Set3 Card', set_code: '3' });
+      insertCard(db, { id: 'c4', name: 'Set4 Card', set_code: '4' });
+      const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE ${CORE_SQL}`);
+      assert.equal(count, 0);
+    });
+
+    test('cp (challenge promo) cards are excluded from Core', async (t) => {
+      const db = await makeDb();
+      if (!db) return t.skip('sql.js not installed');
+      insertCard(db, { id: 'ccp', name: 'Promo Card', set_code: 'cp' });
+      const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name='Promo Card' AND ${CORE_SQL}`);
+      assert.equal(count, 0);
+    });
+
+    // ── Key reprint regression ────────────────────────────────────────────────
+    // A card with a rotated set 1 printing AND a legal set 9 reprint
+    // should appear in Core because the reprint is in a non-rotated set.
+
+    test('Be Prepared: set 1 only — excluded from Core (regression)', async (t) => {
+      const db = await makeDb();
+      if (!db) return t.skip('sql.js not installed');
+      insertCard(db, { id: 'aaa_s1', name: 'Be Prepared', set_code: '1' });
+      const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name='Be Prepared' AND ${CORE_SQL}`);
+      assert.equal(count, 0, 'Be Prepared from set 1 with no reprint must not appear in Core');
+    });
+
+    test('Be Prepared: set 1 + set 9 reprint — included in Core (regression)', async (t) => {
+      const db = await makeDb();
+      if (!db) return t.skip('sql.js not installed');
+      insertCard(db, { id: 'aaa_s1', name: 'Be Prepared', set_code: '1' });
+      insertCard(db, { id: 'zzz_s9', name: 'Be Prepared', set_code: '9' });
+      // card_canonical picks aaa_s1 (MIN id)
+      const canonical = queryRows(db, `SELECT id, set_code FROM card_canonical WHERE name='Be Prepared'`);
+      assert.equal(canonical[0].set_code, '1', 'canonical row is still the set 1 print');
+      // But the Core filter correctly finds the set 9 reprint via EXISTS
+      const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name='Be Prepared' AND ${CORE_SQL}`);
+      assert.equal(count, 1, 'Be Prepared with set 9 reprint must appear in Core');
+    });
+
+    test('Grab Your Sword: set 1 only — excluded from Core (regression)', async (t) => {
+      const db = await makeDb();
+      if (!db) return t.skip('sql.js not installed');
+      insertCard(db, { id: 'gys_s1', name: 'Grab Your Sword', set_code: '1' });
+      const count = queryCount(db, `SELECT COUNT(*) FROM card_canonical WHERE name='Grab Your Sword' AND ${CORE_SQL}`);
+      assert.equal(count, 0, 'Grab Your Sword with no reprint must not appear in Core');
+    });
+
+    test('Core filter combines correctly with ink filter', async (t) => {
+      const db = await makeDb();
+      if (!db) return t.skip('sql.js not installed');
+      insertCard(db, { id: 'c1', name: 'Amber New',  ink: 'Amber', set_code: '5' });
+      insertCard(db, { id: 'c2', name: 'Amber Old',  ink: 'Amber', set_code: '1' });
+      insertCard(db, { id: 'c3', name: 'Ruby New',   ink: 'Ruby',  set_code: '6' });
+      const rows = queryRows(db, `SELECT name FROM card_canonical WHERE ink='Amber' AND ${CORE_SQL}`);
       assert.equal(rows.length, 1);
-      assert.equal(rows[0].id, 'r4_common'); // MIN('r4_common','r4_enc','r4_rare')
+      assert.equal(rows[0].name, 'Amber New');
     });
   });
 
@@ -1695,4 +2251,165 @@ describe('DB integration', () => {
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 15. DB initialization (schema created by initDB in the real app)
+//
+// These tests reproduce the exact SQL that app.js runs at boot time so that
+// any schema mismatch, wrong column count, or broken view is caught here
+// before it reaches the browser.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('DB initialization', () => {
+  // The exact INSERT used by loadCards() in app.js.
+  const APP_INSERT = `INSERT OR REPLACE INTO cards VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+
+  // A representative card row — 27 values, one per schema column in order.
+  const SAMPLE_ROW = [
+    'crd_test001',               // id
+    'Mickey Mouse',              // name
+    'Brave Little Tailor',       // version
+    'normal',                    // layout
+    '2023-08-18',                // released_at
+    'https://img/s.avif',        // img_s
+    'https://img/n.avif',        // img_n
+    'https://img/l.avif',        // img_l
+    5,                           // cost
+    1,                           // inkwell
+    'Amber',                     // ink
+    '["Character"]',             // types
+    '["Hero","Prince"]',         // classes
+    'Rush (This character...)',  // ctxt
+    null,                        // move_cost
+    4,                           // str
+    3,                           // wil
+    2,                           // lore
+    'Super_rare',                // rarity
+    '["Jane Smith"]',            // ills
+    '42',                        // cnum
+    'A legendary hero.',         // flavor
+    '1',                         // set_code
+    'The First Chapter',         // set_name
+    '["Rush"]',                  // keywords
+    '3.49',                      // price_usd
+    'legal',                     // legal_core
+  ];
+
+  // makeDb() from db-helpers creates the table and view but not the indexes.
+  // makeAppDb() adds the indexes on top, matching what initDB() does in app.js.
+  async function makeAppDb() {
+    const db = await makeDb();
+    if (!db) return null;
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS in_name    ON cards(name);
+      CREATE INDEX IF NOT EXISTS in_ink     ON cards(ink);
+      CREATE INDEX IF NOT EXISTS in_rar     ON cards(rarity);
+      CREATE INDEX IF NOT EXISTS in_set     ON cards(set_code);
+      CREATE INDEX IF NOT EXISTS in_cost    ON cards(cost);
+      CREATE INDEX IF NOT EXISTS in_namever ON cards(name,version);
+      CREATE INDEX IF NOT EXISTS in_legal   ON cards(legal_core);
+    `);
+    return db;
+  }
+
+  test('schema creates cards table with correct column count', async (t) => {
+    const db = await makeAppDb();
+    if (!db) return t.skip('sql.js not installed');
+    const info = queryRows(db, `PRAGMA table_info(cards)`);
+    assert.equal(info.length, 27, `Expected 27 columns, got ${info.length}: ${info.map(r=>r.name).join(', ')}`);
+  });
+
+  test('schema column names and order match the INSERT placeholder positions', async (t) => {
+    const db = await makeAppDb();
+    if (!db) return t.skip('sql.js not installed');
+    const info = queryRows(db, `PRAGMA table_info(cards)`);
+    const colNames = info.map(r => r.name);
+    const expected = [
+      'id','name','version','layout','released_at',
+      'img_s','img_n','img_l','cost','inkwell','ink',
+      'types','classes','ctxt','move_cost','str','wil',
+      'lore','rarity','ills','cnum','flavor','set_code','set_name',
+      'keywords','price_usd','legal_core',
+    ];
+    assert.deepEqual(colNames, expected);
+  });
+
+  test('INSERT placeholder count matches column count', (t) => {
+    const placeholders = (APP_INSERT.match(/\?/g) || []).length;
+    assert.equal(placeholders, 27, `INSERT has ${placeholders} placeholders, expected 27`);
+  });
+
+  test('sample row value count matches INSERT placeholder count', (t) => {
+    const placeholders = (APP_INSERT.match(/\?/g) || []).length;
+    assert.equal(SAMPLE_ROW.length, placeholders,
+      `SAMPLE_ROW has ${SAMPLE_ROW.length} values but INSERT has ${placeholders} placeholders`);
+  });
+
+  test('card_canonical view exists after schema init', async (t) => {
+    const db = await makeAppDb();
+    if (!db) return t.skip('sql.js not installed');
+    const views = queryRows(db, `SELECT name FROM sqlite_master WHERE type='view' AND name='card_canonical'`);
+    assert.equal(views.length, 1, 'card_canonical view should exist');
+  });
+
+  test('all expected indexes exist after schema init', async (t) => {
+    const db = await makeAppDb();
+    if (!db) return t.skip('sql.js not installed');
+    const indexes = queryRows(db, `SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='cards'`);
+    const idxNames = new Set(indexes.map(r => r.name));
+    for (const expected of ['in_name','in_ink','in_rar','in_set','in_cost','in_namever','in_legal']) {
+      assert.ok(idxNames.has(expected), `Missing index: ${expected}`);
+    }
+  });
+
+  test('can INSERT and SELECT back a full 27-column card row', async (t) => {
+    const db = await makeAppDb();
+    if (!db) return t.skip('sql.js not installed');
+    db.run(APP_INSERT, SAMPLE_ROW);
+    const rows = queryRows(db, `SELECT * FROM cards WHERE id='crd_test001'`);
+    assert.equal(rows.length, 1);
+    const r = rows[0];
+    assert.equal(r.id,         'crd_test001');
+    assert.equal(r.name,       'Mickey Mouse');
+    assert.equal(r.version,    'Brave Little Tailor');
+    assert.equal(r.ink,        'Amber');
+    assert.equal(r.cost,       5);
+    assert.equal(r.inkwell,    1);
+    assert.equal(r.lore,       2);
+    assert.equal(r.rarity,     'Super_rare');
+    assert.equal(r.set_code,   '1');
+    assert.equal(r.legal_core, 'legal');
+  });
+
+  test('inserted card appears in card_canonical view', async (t) => {
+    const db = await makeAppDb();
+    if (!db) return t.skip('sql.js not installed');
+    db.run(APP_INSERT, SAMPLE_ROW);
+    const rows = queryRows(db, `SELECT id, name, legal_core FROM card_canonical WHERE id='crd_test001'`);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].legal_core, 'legal');
+  });
+
+  test('legal_core filter works on rows inserted via the app INSERT', async (t) => {
+    const db = await makeAppDb();
+    if (!db) return t.skip('sql.js not installed');
+    db.run(APP_INSERT, SAMPLE_ROW);
+    const notLegal = [...SAMPLE_ROW];
+    notLegal[0]  = 'crd_test002';
+    notLegal[1]  = 'Prerelease Card';
+    notLegal[26] = 'not_legal';
+    db.run(APP_INSERT, notLegal);
+    const coreRows = queryRows(db, `SELECT id FROM card_canonical WHERE legal_core='legal'`);
+    const allIds = new Set(coreRows.map(r => r.id));
+    assert.ok(allIds.has('crd_test001'));
+    assert.ok(!allIds.has('crd_test002'));
+  });
+
+  test('db-helpers schema produces same 27-column table as app schema', async (t) => {
+    const db = await makeAppDb();
+    if (!db) return t.skip('sql.js not installed');
+    const info = queryRows(db, `PRAGMA table_info(cards)`);
+    assert.equal(info.length, 27,
+      `Schema produced ${info.length} columns — update SAMPLE_ROW and APP_INSERT to match`);
+  });
+});
 console.log('\n✓ Test file loaded — running with: node --test lorcana.test.js\n');

@@ -74,6 +74,15 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
 .chip[data-type].on{background:var(--s3);color:var(--txt)!important;border:1px solid var(--bdrb)!important}
 .chip[data-set].on{background:var(--s3);color:var(--al)!important;border:1px solid var(--ad)!important}
 .chip[data-iw].on{background:var(--amber)}
+.chip[data-fmt].on{background:var(--amber)}
+/* multi-select checkbox overlay on card tiles */
+.ms-check{position:absolute;inset:0;border-radius:var(--r);border:2px solid var(--bdr);cursor:pointer;transition:border-color .13s,background .13s;display:flex;align-items:flex-start;justify-content:flex-end;padding:.3rem}
+.ms-check.ms-selected{border-color:var(--amber);background:rgba(200,150,62,.15)}
+.ms-tick{width:18px;height:18px;border-radius:50%;border:2px solid var(--bdr);background:var(--s2);display:flex;align-items:center;justify-content:center;font-size:.65rem;color:var(--al);transition:all .13s}
+.ms-check.ms-selected .ms-tick{background:var(--amber);border-color:var(--amber);color:#000}
+/* floating multi-select action bar */
+#multiBar{position:sticky;bottom:.75rem;left:0;right:0;margin:.5rem .75rem 0;background:var(--s2);border:1px solid var(--amber);border-radius:var(--r);padding:.5rem .75rem;display:flex;align-items:center;gap:.5rem;box-shadow:0 4px 20px rgba(0,0,0,.5);z-index:10;flex-wrap:wrap}
+#multiBarCount{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--al);flex-shrink:0;margin-right:auto}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .ia{background:var(--ia)}.ip{background:var(--ip)}.ie{background:var(--ie)}.ir{background:var(--ir)}.is{background:var(--is)}.ist{background:var(--ist)}
 .cr-w{display:flex;flex-direction:column;gap:.4rem}
@@ -461,6 +470,10 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
   <!-- ── BROWSE TAB ── -->
   <div id="tabBrowse" style="display:flex;flex:1">
     <div class="side" id="browseSide">
+      <div class="fs"><h3>Format</h3><div class="chips">
+        <button class="chip" data-fmt="core"     onclick="tf('format','core',this)">Core</button>
+        <button class="chip" data-fmt="infinity" onclick="tf('format','infinity',this)">Infinity</button>
+      </div></div>
       <div class="fs"><h3>Ink Color</h3><div class="chips">
         <button class="chip" data-ink="Amber"    onclick="tf('ink','Amber',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#f59e0b" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>Amber</button>
         <button class="chip" data-ink="Amethyst" onclick="tf('ink','Amethyst',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#a855f7" d="M12 2L2 8l2 13h16l2-13L12 2zm0 3.5l7 4.5-1.5 9.5h-11L5 10l7-4.5z"/></svg>Amethyst</button>
@@ -563,6 +576,10 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
           <!-- Reuse same sidebar filters but this side has its own toolbar -->
           <div style="display:flex;flex:1;min-height:0">
             <div class="side" id="deckSide">
+              <div class="fs"><h3>Format</h3><div class="chips">
+                <button class="chip" data-fmt="core"     onclick="dtf('format','core',this)">Core</button>
+                <button class="chip" data-fmt="infinity" onclick="dtf('format','infinity',this)">Infinity</button>
+              </div></div>
               <div class="fs"><h3>Ink Color</h3><div class="chips">
                 <button class="chip" data-ink="Amber"    onclick="dtf('ink','Amber',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#f59e0b" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>Amber</button>
                 <button class="chip" data-ink="Amethyst" onclick="dtf('ink','Amethyst',this)"><svg class="ink-icon" width="11" height="11" viewBox="0 0 24 24"><path fill="#a855f7" d="M12 2L2 8l2 13h16l2-13L12 2zm0 3.5l7 4.5-1.5 9.5h-11L5 10l7-4.5z"/></svg>Amethyst</button>
@@ -635,6 +652,7 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
                 <div class="vt">
                   <button class="vb" id="dFiltDeck"    onclick="toggleDeckFilter('deck')"      title="Show only cards in deck">In Deck</button>
                   <button class="vb" id="dFiltSB"      onclick="toggleDeckFilter('sideboard')" title="Show only sideboard cards">In Sideboard</button>
+                  <button class="vb" id="multiSelBtn"  onclick="toggleMultiSelect()"           title="Select multiple cards to add at once">Multi-select</button>
                 </div>
                 <div class="vt">
                   <button class="vb on" id="dgbtn" onclick="dsv('g')" title="Grid">⊞</button>
@@ -642,9 +660,16 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
                 </div>
                 <div class="rc" id="drc" style="margin-left:auto"></div>
               </div>
-              <div class="deck-picker-grid">
+              <div class="deck-picker-grid" style="position:relative">
                 <div class="grid" id="dgrid"></div>
                 <div class="pag" id="dpag"></div>
+                <div id="multiBar" style="display:none">
+                  <span id="multiBarCount"></span>
+                  <button class="btn on" onclick="addSelectedToDeck()">＋ Add to Deck</button>
+                  <button class="btn" onclick="addSelectedToSideboard()">Add to Sideboard</button>
+                  <button class="btn" onclick="selectAll()">Select All</button>
+                  <button class="btn" onclick="multiSelect.clear();updMultiBar();drun()">Clear</button>
+                </div>
               </div>
             </div>
           </div>
@@ -697,6 +722,7 @@ header{border-bottom:1px solid var(--bdr);padding:0 1.5rem;display:flex;align-it
           <div class="deck-footer">
             <button class="btn" onclick="exportDeckTxt()" style="font-size:.63rem;padding:.34rem .7rem">Export Text</button>
             <button class="btn" onclick="copyDeckTxt()" style="font-size:.63rem;padding:.34rem .7rem">Copy List</button>
+            <button class="btn" onclick="exportDeckCards()" style="font-size:.63rem;padding:.34rem .7rem">Export Cards</button>
           </div>
         </div>
       </div>
