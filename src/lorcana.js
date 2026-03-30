@@ -17,6 +17,21 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function() {
 'use strict';
 
+// ── Rotation constants ────────────────────────────────────────────────────────
+// Sets 1–4 rotated out of Core Constructed when Set 9 (Fabled) released.
+// The Lorcast API does not update legalities.core to reflect rotation, so we
+// derive legality ourselves from set_code.
+// Promo sets (cp, P2, D23, P1) are treated as rotated since their source cards
+// are from sets 1–4; if a promo was reprinted in a legal set it will have a
+// separate card entry with that set's code.
+const ROTATED_SET_CODES = new Set(['1','2','3','4','cp','P1','D23']);
+
+// SQL expression: true when the card (or any printing of the same name/version)
+// has at least one printing in a non-rotated set.
+// Used in runQ / drunQ / selectAll WHERE clauses.
+const CORE_LEGAL_SQL =
+  `EXISTS(SELECT 1 FROM cards p WHERE p.name=card_canonical.name AND COALESCE(p.version,'')=COALESCE(card_canonical.version,'') AND p.set_code NOT IN('1','2','3','4','cp','P1','D23'))`;
+
 // ── Rarity constants ──────────────────────────────────────────────────────────
 
 const RARITY_ORDER = ['Iconic','Epic','Enchanted','Legendary','Super_rare','Rare','Uncommon','Common','Promo'];
@@ -74,7 +89,7 @@ function makeFilter(overrides) {
     classification: new Set(), set: new Set(), keywords: new Set(),
     inkwell: null, cmin: 0, cmax: 10,
     lmin: null, lmax: null, smin: null, smax: null, wmin: null, wmax: null,
-    q: '',
+    q: '', format: null,
   }, overrides || {});
 }
 
@@ -296,6 +311,209 @@ function parseDeckImportText(text) {
   return directives;
 }
 
+// ── Card export helpers ───────────────────────────────────────────────────────
+
+/** Escape a string for safe HTML insertion. */
+function escHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Format a card's rules text for HTML display.
+ * Converts {I}/{E}/{S} symbols, newlines to <br>, and bolds leading keywords.
+ */
+function fmtRules(t) {
+  if (!t) return '';
+  return escHtml(t)
+    .replace(/\{I\}/g, '<span class="sym cost-sym">◆</span>')
+    .replace(/\{E\}/g, '<span class="sym">⟳</span>')
+    .replace(/\{S\}/g, '<span class="sym">✦</span>')
+    .replace(/\n/g, '<br>')
+    .replace(/(^|<br>)([A-Z][A-Z ,'\-]+?)(?=\s|\()/g, '$1<b>$2</b>');
+}
+
+const EXPORT_INK_COLOR = {
+  Amber:'#b45309', Amethyst:'#7c3aed', Emerald:'#059669',
+  Ruby:'#dc2626',  Sapphire:'#2563eb', Steel:'#475569',
+};
+
+/**
+ * Build the HTML for a single card row in the deck card export.
+ * @param {object} c  - card data row from the DB (name, version, ink, cost, etc.)
+ * @param {{qty:number, foil:boolean}} e - deck entry
+ * @returns {string} HTML string for one card-row div
+ */
+function buildCardRowHtml(c, e) {
+  if (!c) return '';
+  let types, classes;
+  try { types = JSON.parse(c.types || '[]'); } catch { types = []; }
+  try { classes = JSON.parse(c.classes || '[]'); } catch { classes = []; }
+  const inkColor = EXPORT_INK_COLOR[c.ink] || '#888';
+  const isChar = types.includes('Character');
+  const isLoc  = types.includes('Location');
+  const hasStats = c.str != null || c.wil != null || c.lore != null;
+  const qty  = e.qty > 1 ? `<span class="qty">×${e.qty}</span>` : '';
+  const foil = e.foil ? `<span class="foil">✦ Foil</span>` : '';
+
+  return `<div class="card-row">
+  <div class="card-header">
+    <div class="card-title">
+      <span class="card-name">${escHtml(c.name)}</span>${c.version ? `<span class="card-ver">${escHtml(c.version)}</span>` : ''}
+      ${qty}${foil}
+    </div>
+    <div class="card-meta">
+      ${c.ink ? `<span class="ink-badge" style="background:${inkColor}">${escHtml(c.ink)}</span>` : ''}
+      ${c.cost != null ? `<span class="stat-chip"><span class="sym cost-sym">◆</span>${c.cost}</span>` : ''}
+      <span class="stat-chip">${c.inkwell ? 'Inkable' : 'Non-inkable'}</span>
+      <span class="type-chip">${types.map(escHtml).join(' · ')}</span>
+      ${classes.length ? `<span class="type-chip cls">${classes.map(escHtml).join(', ')}</span>` : ''}
+      ${isChar && hasStats ? `
+        ${c.str  != null ? `<span class="stat-chip">STR <b>${c.str}</b></span>`  : ''}
+        ${c.wil  != null ? `<span class="stat-chip">WIL <b>${c.wil}</b></span>`  : ''}
+        ${c.lore != null ? `<span class="stat-chip">◆${c.lore}</span>`           : ''}
+      ` : ''}
+      ${isLoc && c.move_cost != null ? `<span class="stat-chip">Move <b>${c.move_cost}</b></span>` : ''}
+      ${isLoc && c.lore != null ? `<span class="stat-chip">◆${c.lore}</span>` : ''}
+    </div>
+  </div>
+  ${c.ctxt   ? `<div class="rules-text">${fmtRules(c.ctxt)}</div>`           : ''}
+  ${c.flavor ? `<div class="flavor-text">"${escHtml(c.flavor)}"</div>` : ''}
+</div>`;
+}
+
+/**
+ * Build a plain-text block for a single card, optimised for AI consumption.
+ * Symbols: [I] = ink cost, [E] = exert, [S] = lore pip
+ * One card per block; blocks are separated by "---" by the caller.
+ *
+ * @param {object} c  - card row from DB (name, version, ink, inkwell, cost,
+ *                      types, classes, str, wil, lore, move_cost, ctxt, flavor)
+ * @param {{qty:number, foil:boolean}} e - deck entry
+ * @returns {string}
+ */
+function buildCardText(c, e) {
+  if (!c) return '';
+  let types, classes;
+  try { types = JSON.parse(c.types || '[]'); } catch { types = []; }
+  try { classes = JSON.parse(c.classes || '[]'); } catch { classes = []; }
+
+  const isChar  = types.includes('Character');
+  const isLoc   = types.includes('Location');
+  const isAction = types.includes('Action');
+  const isItem  = types.includes('Item');
+
+  const lines = [];
+
+  // Header
+  const title = c.version ? `${c.name} - ${c.version}` : c.name;
+  lines.push(`=== ${title} ===`);
+
+  // Deck context
+  const deckCtx = [`Qty: ${e.qty}`];
+  if (e.foil) deckCtx.push('Foil: Yes');
+  lines.push(deckCtx.join('  '));
+
+  // Core stats
+  const stats = [];
+  if (c.ink)       stats.push(`Ink: ${c.ink}`);
+  if (c.cost != null) stats.push(`Cost: ${c.cost}[I]`);
+  stats.push(`Inkable: ${c.inkwell ? 'Yes' : 'No'}`);
+  if (c.rarity)    stats.push(`Rarity: ${c.rarity.replace('_', ' ')}`);
+  lines.push(stats.join('  '));
+
+  // Type line
+  const typeLine = [];
+  if (types.length)   typeLine.push(`Type: ${types.join(', ')}`);
+  if (classes.length) typeLine.push(`Class: ${classes.join(', ')}`);
+  if (typeLine.length) lines.push(typeLine.join('  '));
+
+  // Combat / location stats
+  const combatStats = [];
+  if (isChar) {
+    if (c.str  != null) combatStats.push(`STR: ${c.str}`);
+    if (c.wil  != null) combatStats.push(`WIL: ${c.wil}`);
+    if (c.lore != null) combatStats.push(`Lore: ${c.lore}[S]`);
+  }
+  if (isLoc) {
+    if (c.move_cost != null) combatStats.push(`Move: ${c.move_cost}[I]`);
+    if (c.lore      != null) combatStats.push(`Lore: ${c.lore}[S]`);
+  }
+  if (combatStats.length) lines.push(combatStats.join('  '));
+
+  // Rules text — symbols replaced with readable tokens
+  if (c.ctxt) {
+    lines.push('');
+    const rules = c.ctxt
+      .replace(/\{I\}/g, '[I]')
+      .replace(/\{E\}/g, '[E]')
+      .replace(/\{S\}/g, '[S]');
+    lines.push(rules);
+  }
+
+  // Flavor text
+  if (c.flavor) {
+    lines.push('');
+    lines.push(`Flavor: "${c.flavor}"`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Build the full plain-text AI export for a deck.
+ * Cards sorted by cost then name; sideboard in a separate section.
+ *
+ * @param {object} deck     - deck object with .cards and .sideboard
+ * @param {object} cardData - map of id → card row (from DB)
+ * @returns {string}
+ */
+function buildDeckCardText(deck, cardData) {
+  if (!deck) return '';
+
+  const sortFn = ([ia], [ib]) => {
+    const ca = cardData[ia], cb = cardData[ib];
+    return (ca?.cost ?? 99) - (cb?.cost ?? 99)
+      || (ca?.name || '').localeCompare(cb?.name || '');
+  };
+
+  const toEntry = ([id, v]) => [id, typeof v === 'number' ? { qty: v, foil: false } : v];
+
+  const mainEntries = Object.entries(deck.cards).map(toEntry).sort(sortFn);
+  const sbEntries   = Object.entries(deck.sideboard || {}).map(toEntry).sort(sortFn);
+
+  const mainTotal = mainEntries.reduce((s, [, e]) => s + e.qty, 0);
+
+  const mainBlocks = mainEntries
+    .map(([id, e]) => buildCardText(cardData[id], e))
+    .filter(Boolean);
+
+  const header = [
+    `DECK: ${deck.name}`,
+    `Cards: ${mainTotal}`,
+    '='.repeat(60),
+  ].join('\n');
+
+  let out = header + '\n\n' + mainBlocks.join('\n\n---\n\n');
+
+  if (sbEntries.length) {
+    const sbTotal = sbEntries.reduce((s, [, e]) => s + e.qty, 0);
+    const sbBlocks = sbEntries
+      .map(([id, e]) => buildCardText(cardData[id], e))
+      .filter(Boolean);
+
+    out += '\n\n' + '='.repeat(60) + '\n';
+    out += `SIDEBOARD: ${sbTotal} card${sbTotal !== 1 ? 's' : ''}\n`;
+    out += '='.repeat(60) + '\n\n';
+    out += sbBlocks.join('\n\n---\n\n');
+  }
+
+  return out;
+}
+
 // ── Print swapping ────────────────────────────────────────────────────────────
 
 /**
@@ -340,6 +558,7 @@ function swapSideboardPrint(deck, oldId, newId) {
 return {
   // Constants
   RARITY_ORDER, RARITY_RANK,
+  ROTATED_SET_CODES, CORE_LEGAL_SQL,
   // Rarity
   rarityRank, highestRarity,
   // Strings
@@ -352,6 +571,9 @@ return {
   addCardToDeck, removeCardFromDeck, setCardQty, toggleCardFoil,
   // Sideboard mutations
   addCardToSideboard, removeCardFromSideboard, setSideboardCardQty, toggleSideboardFoil,
+  // Export helpers
+  escHtml, fmtRules, buildCardRowHtml,
+  buildCardText, buildDeckCardText,
   // Print swapping
   swapCardPrint, swapSideboardPrint,
   // Statistics

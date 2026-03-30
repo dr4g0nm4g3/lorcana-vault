@@ -2,18 +2,23 @@
 // schema as lorcana-browser.html so that query-logic integration tests
 // can run without a browser or network.
 //
-// Requires the `sql.js` package built as a CommonJS module.
-// If the package is unavailable (network-restricted CI), tests that import
-// this file are skipped gracefully via the exported `skipIfNoSqlJs` helper.
+// Requires the `sql.js` package: run `npm install` once before running tests.
+// If the package is unavailable the returned db will be null and tests skip.
+
+const path = require('path');
 
 let SQL = null;
 
 async function getSqlJs() {
   if (SQL) return SQL;
   try {
-    // sql.js ships its own WASM binary; point it at the local node_modules copy
     const initSqlJs = require('sql.js');
-    SQL = await initSqlJs();
+    // Point sql.js at its own WASM file inside node_modules so it works
+    // regardless of the current working directory (local dev or CI).
+    const wasmDir = path.dirname(require.resolve('sql.js'));
+    SQL = await initSqlJs({
+      locateFile: file => path.join(wasmDir, file),
+    });
   } catch {
     SQL = null;
   }
@@ -26,7 +31,7 @@ CREATE TABLE IF NOT EXISTS cards(
   img_s TEXT, img_n TEXT, img_l TEXT, cost INTEGER, inkwell INTEGER, ink TEXT,
   types TEXT, classes TEXT, ctxt TEXT, move_cost INTEGER, str INTEGER, wil INTEGER,
   lore INTEGER, rarity TEXT, ills TEXT, cnum TEXT, flavor TEXT, set_code TEXT,
-  set_name TEXT, keywords TEXT, price_usd TEXT
+  set_name TEXT, keywords TEXT, price_usd TEXT, legal_core TEXT
 );
 DROP VIEW IF EXISTS card_canonical;
 CREATE VIEW card_canonical AS
@@ -82,11 +87,12 @@ function insertCard(db, card) {
     set_name: 'Test Set',
     keywords: '[]',
     price_usd: null,
+    legal_core: 'legal',
     ...card,
   };
 
   db.run(
-    `INSERT OR REPLACE INTO cards VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT OR REPLACE INTO cards VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       c.id, c.name, c.version, c.layout, c.released_at,
       c.img_s, c.img_n, c.img_l, c.cost, c.inkwell ? 1 : 0, c.ink,
@@ -96,7 +102,7 @@ function insertCard(db, card) {
       typeof c.ills === 'string' ? c.ills : JSON.stringify(c.ills),
       c.cnum, c.flavor, c.set_code, c.set_name,
       typeof c.keywords === 'string' ? c.keywords : JSON.stringify(c.keywords),
-      c.price_usd,
+      c.price_usd, c.legal_core,
     ]
   );
   return c.id;
